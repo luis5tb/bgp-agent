@@ -198,6 +198,10 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
             pass
         return False
 
+    def get_ports_on_chassis(self, chassis):
+        rows = self.db_list_rows('Port_Binding').execute(check_error=True)
+        return [r for r in rows if r.chassis and r.chassis[0].name == chassis]
+
 
 class OvnDbNotifyHandler(event.RowEventHandler):
     def __init__(self, driver):
@@ -382,10 +386,31 @@ class BGPAgent(object):
             flow = "cookie=999,priority=1000,ip,in_port={},actions=mod_dl_dst:{},NORMAL".format(info['in_port'], info['mac'])
             self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
 
-        print("Sync current routes... TO DO")
-        # remove extra routes/ips
+        print("Sync current routes...")
+        # get all the ips on ovn dev
+        exposed_ips = []
+        ipdb = pyroute2.IPDB()
+        with ipdb.interfaces[self.ovn_device] as iface:
+            exposed_ips = [ip[0] for ip in iface.ipaddr if ip[1] == 32 or ip[1] == 128]
         # add missing routes/ips
-
+        ports = self.sb_idl.get_ports_on_chassis(self.chassis)
+        for port in ports:
+            if port.type not in OVN_VIF_PORT_TYPES:
+                continue
+            if (len(port.mac[0].split(' ')) != 2 and
+                len(port.mac[0].split(' ')) != 3):
+                continue
+            ip_address = port.mac[0].split(' ')[1]
+            self.add_bgp_route(ip_address, port)
+            if ip_address in exposed_ips:
+                # remove each ip to add from the list of current ips on dev OVN
+                exposed_ips.remove(ip_address)
+        # remove extra routes/ips
+        # remove all the leftovers on the list of current ips on dev OVN
+        with ipdb.interfaces[self.ovn_device] as iface:
+            for ip in exposed_ips:
+                # TODO: adapt to ipv6
+                iface.del_ip(ip, 32)
 
     def _ovs_cmd(self, command, args, timeout=None):
         full_args = [command]
