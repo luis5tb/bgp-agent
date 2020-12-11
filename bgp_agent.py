@@ -305,6 +305,21 @@ class BGPAgent(object):
             time.sleep(1)
 
     def add_bgp_route(self, ip_address, row):
+        '''Advertice BGP route by adding IP to device.
+
+        This methods ensures BGP advertises the IP of the VM in the provider
+        network, or the FIP associated to a VM in a tenant networks.
+
+        It relies on Zebra, which creates and advertises a route when an IP
+        is added to a local interface.
+
+        This method assumes a device named self.ovn_decice exists (inside a
+        VRF), and adds the IP of either:
+        - VM IP on the provider network,
+        - VM FIP, or
+        - CR-LRP OVN port
+        '''
+        # TODO: add ipv6 support
         if row.type == "" and self.sb_idl.is_provider_network(row.datapath):
             print("Add BGP route for logical port with ip {}".format(ip_address))
             ipdb = pyroute2.IPDB()
@@ -326,7 +341,12 @@ class BGPAgent(object):
                 iface.add_ip('%s/%s' % (ip_address.split("/")[0], 32))
 
     def add_bgp_fip_route(self, nat):
-        # example: "fa:16:3e:70:ad:b1 172.24.4.176 is_chassis_resident(\"0c60373b-b770-4946-8bb4-38b5dce99308\")"
+        # NOTE: Works the same as add_bgp_route. However as there is an option
+        # associate/disassociate FIPs from VMs, and that won't trigger a
+        # PortBinding event, we need to handled it with a different notifier
+        # and check if the VM is in the local chassis where the agent is run,
+        # e.g:"fa:16:3e:70:ad:b1 172.24.4.176
+        # is_chassis_resident(\"0c60373b-b770-4946-8bb4-38b5dce99308\")"
         port = nat.split(" ")[2].split("\"")[1]
         if self.sb_idl.is_port_on_chasis(port, self.chassis):
             fip_address = nat.split(" ")[1]
@@ -337,6 +357,21 @@ class BGPAgent(object):
 
 
     def delete_bgp_route(self, ip_address, row):
+        '''Withdraw BGP route by removing IP from device.
+
+        This methods ensures BGP withdraw an advertised IP of a VM, either
+        in the provider network, or the FIP associated to a VM in a tenant
+        networks.
+
+        It relies on Zebra, which withdraws the advertisement as soon as the
+        IP is deleted from the local interface.
+
+        This method assumes a device named self.ovn_decice exists (inside a
+        VRF), and removes the IP of either:
+        - VM IP on the provider network,
+        - VM FIP, or
+        - CR-LRP OVN port
+        '''
         if row.type == "" and self.sb_idl.is_provider_network(row.datapath):
             print("Delete BGP route for logical port with ip {}".format(ip_address))
             ipdb = pyroute2.IPDB()
@@ -409,7 +444,7 @@ class BGPAgent(object):
         # remove all the leftovers on the list of current ips on dev OVN
         with ipdb.interfaces[self.ovn_device] as iface:
             for ip in exposed_ips:
-                # TODO: adapt to ipv6
+                # TODO: add ipv6 support
                 iface.del_ip(ip, 32)
 
     def _ovs_cmd(self, command, args, timeout=None):
