@@ -16,9 +16,9 @@ through BGP if:
 on the tenant network)
 
 The way the agent advertises the routes is by adding an IP to a predefined
-(dummy) interface. Then it relies on Zebra to do the BGP advertisement, as
-Zebra detects the addition/deletion of the IP on the local interface and
-create/deletes and advertises/withdraw the route.
+(dummy) interface associated to a vrf. Then it relies on Zebra to do the BGP
+advertisement, as Zebra detects the addition/deletion of the IP on the local
+interface and create/deletes and advertises/withdraw the route.
 
 ### Pre Requisites:
 
@@ -87,16 +87,6 @@ an IP to properly handle the traffic:
         sudo sysctl -w net.ipv4.ip_forward=1
         sudo ip r a 172.24.4.1 via 99.99.1.1 #(loopback device IP)
 
-- And finally, create the ovn dummy nic that the agent will use to expose
-the BGP routes, inside a VRF:
-
-        sudo ip link add dev ovn-bgp-vrf type vrf table 10
-        sudo ip link set dev ovn-bgp-vrf up
-        sudo ip link add ovn type dummy
-        sudo ip link set dev ovn up
-        sudo ip link set dev ovn master ovn-bgp-vrf
-
-
 ### How to run it
 
 As a python script on the compute nodes:
@@ -119,5 +109,6 @@ As a python script on the compute nodes:
 ## Future enhancements
 - Add support for IPv6.
 - Allow to expose VM IPs on tenant networks (without FIPs).
+- Allow to configure some parameters instead of make them constants
 - Add different modes, in case only certain nodes are allowed to run the
 agent, i.e., only certain nodes are connected to the BGP peers.

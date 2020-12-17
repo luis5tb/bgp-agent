@@ -2,6 +2,7 @@ import abc
 import time
 
 import pyroute2
+from pyroute2.ipdb import exceptions as ipdb_exc
 
 from ovs.db import idl
 from ovsdbapp.backend import ovs_idl
@@ -19,6 +20,11 @@ from oslo_concurrency import processutils
 
 OVN_VIF_PORT_TYPES = ("", "chassisredirect", )
 _SYNC_STATE_LOCK = lockutils.ReaderWriterLock()
+OVN_BGP_NIC = "ovn"
+OVN_BGP_VRF = "ovn-bgp-vrf"
+OVN_BGP_VRF_TABLE = 10
+OVS_CONNECTION_STRING = "unix:/usr/local/var/run/openvswitch/db.sock"
+OVS_RULE_COOKIE = "999"
 
 
 class PortBindingChassisEvent(row_event.RowEvent):
@@ -266,15 +272,17 @@ class OvsIdl(object):
 
 class BGPAgent(object):
     def _load_config(self):
-        self.ovn_device = "ovn"
-        self.ovn_vrf = "ovn-bgp-vrf"
+        self.ovn_device = OVN_BGP_NIC
+        self.ovn_vrf = OVN_BGP_VRF
+        self.ovn_vrf_table = OVN_BGP_VRF_TABLE
+
         self.chassis = self._get_own_chassis_name()
         self.ovn_remote = self._get_ovn_remote()
         print("Loaded chassis {}.".format(self.chassis))
 
     def start(self):
         print("Starting BGP Agent...")
-        ovs_connection_string = 'unix:/usr/local/var/run/openvswitch/db.sock'
+        ovs_connection_string = OVS_CONNECTION_STRING
         self.ovs_idl = OvsIdl().start(ovs_connection_string)
         self._load_config()
 
@@ -297,7 +305,6 @@ class BGPAgent(object):
                 events=events + (ChassisCreateEvent(self), )).start()
 
         print("BGP Agent Started...")
-
         # Do the initial sync.
         self.sync()
 
@@ -402,14 +409,44 @@ class BGPAgent(object):
                 iface.del_ip('%s/%s' % (fip_address, 32))
 
     def sync(self):
-        print("Configuring br-ex default rule")
+        ipdb = pyroute2.IPDB()
+        print("Ensuring VRF configuration for advertising routes")
+        # Create VRF
+        try:
+            with ipdb.interfaces[self.ovn_vrf] as vrf:
+                if vrf.state != "up":
+                    vrf.up()
+        except KeyError:
+            with ipdb.create(kind="vrf",
+                             ifname=self.ovn_vrf,
+                             vrf_table=self.ovn_vrf_table) as vrf:
+                vrf.up()
+        # Create device
+        try:
+            with ipdb.interfaces[self.ovn_device] as iface:
+                if iface.state != "up":
+                    iface.up()
+        except KeyError:
+            with ipdb.create(kind="dummy",
+                             ifname=self.ovn_device) as iface:
+                iface.up()
+        # Associate device to VRF
+        with ipdb.interfaces[self.ovn_device] as iface:
+            # Assuming if a master is set, is the right one
+            if not iface.master:
+                try:
+                    with ipdb.interfaces[self.ovn_vrf] as vrf:
+                        vrf.add_port(iface.index)
+                except ipdb_exc.CommitException:
+                    print("WARNING: Due to bug in IPDB reading the master vrf, assuming the VRF is already added")
+
+        print("Configuring br-ex default rule and routing tables for each provider network")
         flows_info = {}
         # 1) Get bridge mappings: xxxx:br-ex,yyyy:br-ex2
         bridge_mappings = self._get_ovn_bridge_mappings()
         # 2) Get macs for bridge mappings
         for bridge_mapping in bridge_mappings:
             bridge = bridge_mapping.split(":")[1]
-            ipdb = pyroute2.IPDB()
             with ipdb.interfaces[bridge] as iface:
                 flows_info[bridge] = {'mac': iface.address}
             # 3) Get in_port for bridge mappings (br-ex, br-ex2)
@@ -418,13 +455,12 @@ class BGPAgent(object):
             flows_info[bridge]['in_port'] = ovs_ofport
         # 4) Add flows for each bridge mappings
         for bridge, info in flows_info.items():
-            flow = "cookie=999,priority=1000,ip,in_port={},actions=mod_dl_dst:{},NORMAL".format(info['in_port'], info['mac'])
+            flow = "cookie={},priority=1000,ip,in_port={},actions=mod_dl_dst:{},NORMAL".format(OVS_RULE_COOKIE, info['in_port'], info['mac'])
             self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
 
         print("Sync current routes...")
         # get all the ips on ovn dev
         exposed_ips = []
-        ipdb = pyroute2.IPDB()
         with ipdb.interfaces[self.ovn_device] as iface:
             exposed_ips = [ip[0] for ip in iface.ipaddr if ip[1] == 32 or ip[1] == 128]
         # add missing routes/ips
