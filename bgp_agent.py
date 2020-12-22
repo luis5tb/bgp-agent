@@ -599,8 +599,9 @@ class BGPAgent(object):
             if (len(port.mac[0].split(' ')) != 2 and
                 len(port.mac[0].split(' ')) != 3):
                 continue
-            ip_address = port.mac[0].split(' ')[1]
-            self.add_bgp_route(ip_address, port)
+            port_ip = port.mac[0].split(' ')[1]
+            ip_address = port_ip.split("/")[0]
+            self.add_bgp_route(port_ip, port)
             if ip_address in exposed_ips:
                 # remove each ip to add from the list of current ips on dev OVN
                 exposed_ips.remove(ip_address)
