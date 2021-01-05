@@ -89,22 +89,37 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
         super(OvsdbSbOvnIdl, self).__init__(connection)
         self.idl._session.reconnect.set_probe_interval(60000)
 
+    def _get_port_by_name(self, port):
+        cmd = self.db_find_rows('Port_Binding', ('logical_port', '=', port))
+        port_info = cmd.execute(check_error=True)
+        if port_info:
+            return port_info[0]
+        return []
+
+    def _get_ports_by_datapath(self, datapath, port_type=None):
+        if port_type:
+            cmd = self.db_find_rows('Port_Binding',
+                                    ('datapath', '=', datapath),
+                                    ('type', '=', port_type))
+        else:
+            cmd = self.db_find_rows('Port_Binding',
+                                    ('datapath', '=', datapath))
+        return cmd.execute(check_error=True)
+
     def is_provider_network(self, datapath):
         cmd = self.db_find_rows('Port_Binding', ('datapath', '=', datapath),
                                 ('type', '=', 'localnet'))
         return next(iter(cmd.execute(check_error=True)), None)
 
     def get_fip_associated(self, port):
-        cmd = self.db_find_rows('Port_Binding', ('type', '=', 'patch'))
-        for row in cmd.execute(check_error=True):
+        for row in self._get_ports_by_datapath(datapath, 'patch'):
             for fip in row.nat_addresses:
                 if port in fip:
                     return fip.split(" ")[1], row.datapath
         return None, None
 
-    def is_port_on_chasis(self, port, chassis):
-        cmd = self.db_find_rows('Port_Binding', ('logical_port', '=', port))
-        port_info = cmd.execute(check_error=True)
+    def is_port_on_chasis(self, port_name, chassis):
+        port_info = self._get_port_by_name(port_name)
         try:
             if (port_info and port_info[0].type == "" and
                     port_info[0].chassis[0].name == chassis):
@@ -118,17 +133,13 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
         return [r for r in rows if r.chassis and r.chassis[0].name == chassis]
 
     def get_network_name(self, datapath):
-        cmd = self.db_find_rows('Port_Binding', ('datapath', '=', datapath),
-                                ('type', '=', 'localnet'))
-        for row in cmd.execute(check_error=True):
+        for row in self._get_ports_by_datapath(datapath, 'localnet'):
             if row.options:
                 return row.options.get('network_name')
         return None
 
     def is_router_gateway_chassis(self, datapath, chassis):
-        cmd = self.db_find_rows('Port_Binding', ('datapath', '=', datapath),
-                                ('type', '=', 'chassisredirect'))
-        port_info = cmd.execute(check_error=True)
+        port_info = self._get_ports_by_datapath(datapath, 'chassisredirect'):
         try:
             if port_info and port_info[0].chassis[0].name == chassis:
                 return port_info[0].logical_port
@@ -137,26 +148,19 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
         return None
 
     def get_lrp_port_for_datapath(self, datapath):
-        cmd = self.db_find_rows('Port_Binding', ('datapath', '=', datapath),
-                                ('type', '=', 'patch'))
-        for row in cmd.execute(check_error=True):
+        for row in self._get_ports_by_datapath(datapath, 'patch'):
             if row.options:
                 return row.options['peer']
         return None
 
     def get_lrp_ports_for_router(self, datapath):
-        cmd = self.db_find_rows('Port_Binding', ('datapath', '=', datapath),
-                                ('type', '=', 'patch'))
-        return cmd.execute(check_error=True)
+        return self._get_ports_by_datapath(datapath, 'patch')
 
-    def get_port_datapath(self, port):
-        cmd = self.db_find_rows('Port_Binding', ('logical_port', '=', port))
-        port_info = cmd.execute(check_error=True)
-        try:
-            return port_info[0].datapath
-        except IndexError:
-            return None
+    def get_port_datapath(self, port_name):
+        port_info = self._get_port_by_name(port_name)
+        if port_info:
+            return port_info.datapath
+        return None
 
     def get_ports_on_datapath(self, datapath):
-        cmd = self.db_find_rows('Port_Binding', ('datapath', '=', datapath))
-        return cmd.execute(check_error=True)
+        return self._get_ports_by_datapath(datapath)
