@@ -130,36 +130,88 @@ class BGPAgent(object):
                 command, full_args, e))
             raise
 
+    def _ensure_vrf(self, vrf_name, vrf_table):
+        ipdb = pyroute2.IPDB()
+        try:
+            with ipdb.interfaces[vrf_name] as vrf:
+                if vrf.state != "up":
+                    vrf.up()
+        except KeyError:
+            with ipdb.create(kind="vrf",
+                             ifname=vrf_name,
+                             vrf_table=vrf_table) as vrf:
+                vrf.up()
+
+    def _ensure_ovn_device(self, ovn_ifname, vrf_name):
+        ipdb = pyroute2.IPDB()
+        ip = pyroute2.IPRoute()
+        try:
+            with ipdb.interfaces[ovn_ifname] as iface:
+                if iface.state != "up":
+                    iface.up()
+        except KeyError:
+            with ipdb.create(kind="dummy",
+                             ifname=ovn_ifname) as iface:
+                iface.up()
+        # Associate device to VRF
+        ovn_nic_index = ip.link_lookup(ifname=ovn_ifname)[0]
+        ovn_nic = ip.link("get", index=ovn_nic_index)[0]
+        # Check if already associated to a vrf, and associate it if not
+        if not ovn_nic.get_attr("IFLA_MASTER"):
+            with ipdb.interfaces[vrf_name] as vrf:
+                vrf.add_port(ovn_nic_index)
+
+    def _ensure_routing_table_for_bridge(self, bridge):
+        # check a routing table with the bridge name exists on
+        # /etc/iproute2/rt_tables
+        regex = '^[0-9]*[\s]*{}$'.format(bridge)
+        matching_table = [line.replace('\t', ' ')
+                            for line in open('/etc/iproute2/rt_tables')
+                            if re.findall(regex, line)]
+        if matching_table:
+            table_info = matching_table[0].strip().split()
+            self.ovn_routing_tables[table_info[1]] = int(table_info[0])
+            print("Found routing table for {} with: {}".format(bridge,
+                    table_info))
+        # if not raise configuration error and exit
+        else:
+            print(("Routing table for bridge {} must be configure "
+                    "at /etc/iproute2/rt_tables").format(bridge))
+            sys.exit()
+
+        # add default route on that table if it does not exist
+        ipdb = pyroute2.IPDB()
+        try:
+            table_route = ipdb.routes.tables[
+                self.ovn_routing_tables[bridge]]
+        except KeyError:  # if there is no rules, ipdb returns KeyError
+            ipdb.routes.add(dst='default',
+                            oif=ipdb.interfaces[bridge].index,
+                            table=self.ovn_routing_tables[bridge]
+                            ).commit()
+        else:
+            rule_missing = True
+            for rule in table_route:
+                if (rule['dst'] == 'default' and
+                        ipdb.interfaces[rule['oif']].ifname == bridge):
+                    rule_missing = False
+                else:
+                    with rule as r:
+                        r.remove()
+            if rule_missing:
+                ipdb.routes.add(dst='default',
+                                oif=ipdb.interfaces[bridge].index,
+                                table=self.ovn_routing_tables[bridge]
+                                ).commit()
+
     def sync(self):
         ipdb = pyroute2.IPDB()
         ip = pyroute2.IPRoute()
         print("Ensuring VRF configuration for advertising routes")
         # Create VRF
-        try:
-            with ipdb.interfaces[constants.OVN_BGP_VRF] as vrf:
-                if vrf.state != "up":
-                    vrf.up()
-        except KeyError:
-            with ipdb.create(kind="vrf",
-                             ifname=constants.OVN_BGP_VRF,
-                             vrf_table=constants.OVN_BGP_VRF_TABLE) as vrf:
-                vrf.up()
-        # Create device
-        try:
-            with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
-                if iface.state != "up":
-                    iface.up()
-        except KeyError:
-            with ipdb.create(kind="dummy",
-                             ifname=constants.OVN_BGP_NIC) as iface:
-                iface.up()
-        # Associate device to VRF
-        ovn_nic_index = ip.link_lookup(ifname=constants.OVN_BGP_NIC)[0]
-        ovn_nic = ip.link("get", index=ovn_nic_index)[0]
-        # Check if already associated to a vrf, and associate it if not
-        if not ovn_nic.get_attr("IFLA_MASTER"):
-            with ipdb.interfaces[constants.OVN_BGP_VRF] as vrf:
-                vrf.add_port(ovn_nic_index)
+        self._ensure_vrf(constants.OVN_BGP_VRF, constants.OVN_BGP_VRF_TABLE)
+        # Create OVN dummy device
+        self._ensure_ovn_device(constants.OVN_BGP_NIC, constants.OVN_BGP_VRF)
 
         print("Configuring br-ex default rule and routing tables for each "
               "provider network")
@@ -172,45 +224,8 @@ class BGPAgent(object):
             bridge = bridge_mapping.split(":")[1]
             self.ovn_bridge_mappings[network] = bridge
             if self._use_rules:
-                # check a routing table with the bridge name exists on
-                # /etc/iproute2/rt_tables
-                regex = '^[0-9]*[\s]*{}$'.format(bridge)
-                matching_table = [line.replace('\t', ' ')
-                                  for line in open('/etc/iproute2/rt_tables')
-                                  if re.findall(regex, line)]
-                if matching_table:
-                    table_info = matching_table[0].strip().split()
-                    self.ovn_routing_tables[table_info[1]] = int(table_info[0])
-                    print("Found routing table for {} with: {}".format(bridge,
-                          table_info))
-                # if not raise configuration error and exit
-                else:
-                    print(("Routing table for bridge {} must be configure "
-                           "at /etc/iproute2/rt_tables").format(bridge))
-                    sys.exit()
-                # add default route on that table if it does not exist
-                try:
-                    table_route = ipdb.routes.tables[
-                        self.ovn_routing_tables[bridge]]
-                except KeyError:  # if there is no rules, ipdb returns KeyError
-                    ipdb.routes.add(dst='default',
-                                    oif=ipdb.interfaces[bridge].index,
-                                    table=self.ovn_routing_tables[bridge]
-                                    ).commit()
-                else:
-                    rule_missing = True
-                    for rule in table_route:
-                        if (rule['dst'] == 'default' and
-                                ipdb.interfaces[rule['oif']].ifname == bridge):
-                            rule_missing = False
-                        else:
-                            with rule as r:
-                                r.remove()
-                    if rule_missing:
-                        ipdb.routes.add(dst='default',
-                                        oif=ipdb.interfaces[bridge].index,
-                                        table=self.ovn_routing_tables[bridge]
-                                        ).commit()
+                self._ensure_routing_table_for_bridge(bridge)
+
             with ipdb.interfaces[bridge] as iface:
                 flows_info[bridge] = {'mac': iface.address}
             # 3) Get in_port for bridge mappings (br-ex, br-ex2)
@@ -230,7 +245,7 @@ class BGPAgent(object):
                            info['mac']))
                 self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
 
-        print("Sync current routes...")
+        print("Sync current routes.")
         # get all the ips on ovn dev
         exposed_ips = []
         with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
