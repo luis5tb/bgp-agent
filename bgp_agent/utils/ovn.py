@@ -139,7 +139,7 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
         return None
 
     def is_router_gateway_chassis(self, datapath, chassis):
-        port_info = self._get_ports_by_datapath(datapath, 'chassisredirect'):
+        port_info = self._get_ports_by_datapath(datapath, 'chassisredirect')
         try:
             if port_info and port_info[0].chassis[0].name == chassis:
                 return port_info[0].logical_port

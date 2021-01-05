@@ -37,15 +37,18 @@ def start():
     # set to True to also add ip rules, which avoids the need for
     # learning bgp routes on the compute nodes
     use_rules = True
+    # expose tenant networks is only supported if use_rules is enabled
+    expose_tenant_networks = True
     agt = BGPAgent()
-    agt.start(use_rules)
+    agt.start(use_rules, expose_tenant_networks)
 
 
 class BGPAgent(object):
 
-    def start(self, use_rules=False):
+    def start(self, use_rules=False, expose_tenant_networks=True):
         print("Starting BGP Agent...")
         self._use_rules = use_rules
+        self._expose_tenant_networks = expose_tenant_networks
         self.ovn_routing_tables = {}  # {'br-ex': 200}
         self.ovn_bridge_mappings = {}  # {'public': 'br-ex'}
         self.ovn_local_cr_lrps = {}
@@ -56,14 +59,20 @@ class BGPAgent(object):
 
         tables = ('Port_Binding', 'Datapath_Binding', 'SB_Global',
                   'Chassis')
-        events = (osp_events.PortBindingChassisCreatedEvent(self),
-                  osp_events.PortBindingChassisDeletedEvent(self),
-                  osp_events.FIPSetEvent(self),
-                  osp_events.FIPUnsetEvent(self),
-                  osp_events.SubnetRouterAttachedEvent(self),
-                  osp_events.SubnetRouterDetachedEvent(self),
-                  osp_events.TenantPortCreatedEvent(self),
-                  osp_events.TenantPortDeletedEvent(self))
+        if self._expose_tenant_networks:
+            events = (osp_events.PortBindingChassisCreatedEvent(self),
+                    osp_events.PortBindingChassisDeletedEvent(self),
+                    osp_events.FIPSetEvent(self),
+                    osp_events.FIPUnsetEvent(self),
+                    osp_events.SubnetRouterAttachedEvent(self),
+                    osp_events.SubnetRouterDetachedEvent(self),
+                    osp_events.TenantPortCreatedEvent(self),
+                    osp_events.TenantPortDeletedEvent(self))
+        else:
+            events = (osp_events.PortBindingChassisCreatedEvent(self),
+                      osp_events.PortBindingChassisDeletedEvent(self),
+                      osp_events.FIPSetEvent(self),
+                      osp_events.FIPUnsetEvent(self))
 
         self.has_chassis_private = False
         try:
@@ -253,11 +262,12 @@ class BGPAgent(object):
                            if ip[1] == 32 or ip[1] == 128]
         # get the rules pointing to ovn bridges
         created_ip_rules = {}
-        for table in self.ovn_routing_tables.values():
-            for rule in ip.get_rules(table=table):
-                dst = rule.get_attrs('FRA_DST')[0]
-                mask = rule['dst_len']
-                created_ip_rules[dst] = {'table': table, 'mask': mask}
+        if self._use_rules:
+            for table in self.ovn_routing_tables.values():
+                for rule in ip.get_rules(table=table):
+                    dst = rule.get_attrs('FRA_DST')[0]
+                    mask = rule['dst_len']
+                    created_ip_rules[dst] = {'table': table, 'mask': mask}
 
         # add missing routes/ips for fips/provider VMs
         ports = self.sb_idl.get_ports_on_chassis(self.chassis)
@@ -273,41 +283,44 @@ class BGPAgent(object):
             if ip_address in exposed_ips:
                 # remove each ip to add from the list of current ips on dev OVN
                 exposed_ips.remove(ip_address)
-            if ip_address in created_ip_rules.keys():
+            if (ip_address in created_ip_rules.keys() and
+                    self._use_rules):
                 del created_ip_rules[ip_address]
         # add missing route/ips for tenant network VMs
-        for cr_lrp_info in self.ovn_local_cr_lrps.values():
-            lrp_ports = self.sb_idl.get_lrp_ports_for_router(
-                cr_lrp_info['router_datapath'])
-            for lrp in lrp_ports:
-                if lrp.chassis:
-                    continue
-                try:
-                    lrp_ip = lrp.mac[0].split(' ')[1]
-                except IndexError:
-                    continue
-                if lrp_ip.split('/')[0] == cr_lrp_info['ip']:
-                    continue
-                self.ovn_local_lrps.append(lrp)
-                self._add_ip_rule(lrp_ip, cr_lrp_info['provider_datapath'])
-                lrp_network = self.sb_idl.get_port_datapath(
-                    lrp.options['peer'])
-                if lrp_network:
-                    network_ports = self.sb_idl.get_ports_on_datapath(
-                        lrp_network)
-                    for port in network_ports:
-                        if port.type != "":
-                            continue
-                        try:
-                            ip_address = port.mac[0].split(' ')[1]
-                        except IndexError:
-                            continue
-                        with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
-                            iface.add_ip('%s/%s' % (ip_address, 32))
-                        if ip_address in exposed_ips:
-                            exposed_ips.remove(ip_address)
-                        if ip_address in created_ip_rules.keys():
-                            del created_ip_rules[ip_address]
+        if self._use_rules and self._expose_tenant_networks:
+            for cr_lrp_info in self.ovn_local_cr_lrps.values():
+                lrp_ports = self.sb_idl.get_lrp_ports_for_router(
+                    cr_lrp_info['router_datapath'])
+                for lrp in lrp_ports:
+                    if lrp.chassis:
+                        continue
+                    try:
+                        lrp_ip = lrp.mac[0].split(' ')[1]
+                    except IndexError:
+                        continue
+                    if lrp_ip.split('/')[0] == cr_lrp_info['ip']:
+                        continue
+                    self.ovn_local_lrps.append(lrp)
+                    self._add_ip_rule(lrp_ip,
+                                      cr_lrp_info['provider_datapath'])
+                    lrp_network = self.sb_idl.get_port_datapath(
+                        lrp.options['peer'])
+                    if lrp_network:
+                        network_ports = self.sb_idl.get_ports_on_datapath(
+                            lrp_network)
+                        for port in network_ports:
+                            if port.type != "":
+                                continue
+                            try:
+                                ip_address = port.mac[0].split(' ')[1]
+                            except IndexError:
+                                continue
+                            with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
+                                iface.add_ip('%s/%s' % (ip_address, 32))
+                            if ip_address in exposed_ips:
+                                exposed_ips.remove(ip_address)
+                            if ip_address in created_ip_rules.keys():
+                                del created_ip_rules[ip_address]
 
         # remove extra routes/ips
         # remove all the leftovers on the list of current ips on dev OVN

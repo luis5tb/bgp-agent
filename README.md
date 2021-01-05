@@ -14,6 +14,7 @@ through BGP if:
 - VM is created on a provider network
 - VM has a FIP associated to it (note the IP exposed is the FIP, not the VM IP
 on the tenant network)
+- VM is created on tenant network and `expose_tenant_networks = True`
 
 The way the agent advertises the routes is by adding an IP to a predefined
 (dummy) interface associated to a vrf. Then it relies on Zebra to do the BGP
@@ -29,6 +30,7 @@ IP through the ovs bridge (e.g., br-ex):
         1000:   from all lookup [l3mdev-table]
         *32000:  from all to 172.24.4.92 lookup br-ex*
         *32000:  from all to 172.24.4.220 lookup br-ex*
+        *32000:  from all to 10.0.0.64/26 lookup br-ex*
         32766:  from all lookup main
         32767:  from all lookup default
 
@@ -43,8 +45,20 @@ by the agent by ensuring proper ARP handling by adding the next:
 
         $ sudo ip nei replace CR_LRP_PORT_IP lladdr CR_LRP_PORT_MAC dev br-ex nud permanent
 
-The use of ip rules can be deactivated, with extra requirements from the
-configuration side, see subsection about configuration without ip rules.
+NOTE:
+
+- The use of ip rules can be deactivated (setting `use_rules = False`), with
+extra requirements from the configuration side, see subsection about
+configuration without ip rules.
+- Exposing VMs on tenant network is only supported if ip rules is used, i.e.,
+if `use_rules = True`.
+- The VMs on tenant networks are exposed through the ovn node where the 
+gateway port is located (i.e., the cr-lrp port). That means the traffic
+will go to it first, and then through the geneve tunnel to the node where
+the VM is.
+- Exposing VMs on tenant networks can be deacticated (setting
+`expose_tenant_network = False`).
+
 
 
 ### Pre Requisites:
@@ -144,6 +158,7 @@ bridge name associated to it, for instance, as root do:
         1000:   from all lookup [l3mdev-table]
         *32000:  from all to 172.24.4.92 lookup br-ex*
         *32000:  from all to 172.24.4.220 lookup br-ex*
+        *32000:  from all to 10.0.0.64/26 lookup br-ex*
         32766:  from all lookup main
         32767:  from all lookup default
 
@@ -151,14 +166,15 @@ bridge name associated to it, for instance, as root do:
 
 As a python script on the compute nodes:
 
-    $ sudo python3 bgp_agent.py
+    $ python setup.py install
+    $ sudo bgp-agent
     Starting BGP Agent...
     Loaded chassis 51c8480f-c573-4c1c-b96e-582f9ca21e70.
     BGP Agent Started...
     Ensuring VRF configuration for advertising routes
     Configuring br-ex default rule and routing tables for each provider network
     Found routing table for br-ex with: ['201', 'br-ex']
-    Sync current routes...
+    Sync current routes.
     Add BGP route for logical port with ip 172.24.4.226
     Add BGP route for FIP with ip 172.24.4.199
     Add BGP route for CR-LRP Port 172.24.4.221
@@ -185,12 +201,11 @@ something like:
 
 ## Current limitations
 - Only exposes IPv4 IPs.
-- It does not exposes tenant networks VM IPs.
+- Tenant networks VM IPs are exposed only if `use_rules` is enabled.
+
 
 ## Future enhancements
 - Add support for IPv6.
-- Allow to expose VM IPs on tenant networks (without FIPs).
-- Allow to expose all VM on specific tenant networks.
-- Allow to configure some parameters instead of make them constants
+- Allow to configure some parameters instead of make them constants.
 - Add different modes, in case only certain nodes are allowed to run the
 agent, i.e., only certain nodes are connected to the BGP peers.
