@@ -136,10 +136,27 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
             pass
         return None
 
-    def get_lrp_port(self, datapath):
+    def get_lrp_port_for_datapath(self, datapath):
         cmd = self.db_find_rows('Port_Binding', ('datapath', '=', datapath),
                                 ('type', '=', 'patch'))
         for row in cmd.execute(check_error=True):
             if row.options:
                 return row.options['peer']
         return None
+
+    def get_lrp_ports_for_router(self, datapath):
+        cmd = self.db_find_rows('Port_Binding', ('datapath', '=', datapath),
+                                ('type', '=', 'patch'))
+        return cmd.execute(check_error=True)
+
+    def get_port_datapath(self, port):
+        cmd = self.db_find_rows('Port_Binding', ('logical_port', '=', port))
+        port_info = cmd.execute(check_error=True)
+        try:
+            return port_info[0].datapath
+        except IndexError:
+            return None
+
+    def get_ports_on_datapath(self, datapath):
+        cmd = self.db_find_rows('Port_Binding', ('datapath', '=', datapath))
+        return cmd.execute(check_error=True)
