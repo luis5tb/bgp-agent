@@ -125,7 +125,7 @@ class FIPUnsetEvent(PortBindingChassisEvent):
         with _SYNC_STATE_LOCK.read_lock():
             for nat in old.nat_addresses:
                 if nat not in row.nat_addresses:
-                    self.agent.delete_bgp_fip_route(nat, old.datapath)
+                    self.agent.delete_bgp_fip_route(nat, row.datapath)
 
 
 class SubnetRouterAttachedEvent(PortBindingChassisEvent):

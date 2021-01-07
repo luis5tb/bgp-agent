@@ -456,7 +456,7 @@ class BGPAgent(object):
         # e.g:"fa:16:3e:70:ad:b1 172.24.4.176
         # is_chassis_resident(\"0c60373b-b770-4946-8bb4-38b5dce99308\")"
         port = nat.split(" ")[2].split("\"")[1]
-        if self.sb_idl.is_port_on_chasis(port, self.chassis):
+        if self.sb_idl.is_port_on_chassis(port, self.chassis):
             fip_address = nat.split(" ")[1]
             print("Add BGP route for FIP with ip {}".format(fip_address))
             ipdb = pyroute2.IPDB()
@@ -470,7 +470,7 @@ class BGPAgent(object):
         # example: "fa:16:3e:70:ad:b1 172.24.4.176
         # is_chassis_resident(\"0c60373b-b770-4946-8bb4-38b5dce99308\")"
         port = nat.split(" ")[2].split("\"")[1]
-        if self.sb_idl.is_port_on_chasis(port, self.chassis):
+        if self.sb_idl.is_port_on_chassis(port, self.chassis):
             fip_address = nat.split(" ")[1]
             print("Delete BGP route for FIP with ip {}".format(fip_address))
             ipdb = pyroute2.IPDB()

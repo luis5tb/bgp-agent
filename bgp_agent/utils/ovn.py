@@ -119,11 +119,11 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
                     return fip.split(" ")[1], row.datapath
         return None, None
 
-    def is_port_on_chasis(self, port_name, chassis):
+    def is_port_on_chassis(self, port_name, chassis):
         port_info = self._get_port_by_name(port_name)
         try:
             if (port_info and port_info[0].type == "" and
-                    port_info[0].chassis[0].name == chassis):
+                    port_info.chassis[0].name == chassis):
                 return True
         except IndexError:
             pass
