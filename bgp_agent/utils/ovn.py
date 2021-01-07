@@ -112,7 +112,8 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
         return next(iter(cmd.execute(check_error=True)), None)
 
     def get_fip_associated(self, port):
-        for row in self._get_ports_by_datapath(datapath, 'patch'):
+        cmd = self.db_find_rows('Port_Binding', ('type', '=', 'patch'))
+        for row in cmd.execute(check_error=True):
             for fip in row.nat_addresses:
                 if port in fip:
                     return fip.split(" ")[1], row.datapath
