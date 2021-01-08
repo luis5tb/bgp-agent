@@ -213,9 +213,85 @@ class BGPAgent(object):
                                 table=self.ovn_routing_tables[bridge]
                                 ).commit()
 
+    def _ensure_port_exposed(self, port, exposed_ips, ovn_ip_rules):
+        if port.type not in constants.OVN_VIF_PORT_TYPES:
+            return
+        if (len(port.mac[0].split(' ')) != 2 and
+                len(port.mac[0].split(' ')) != 3):
+            return
+        port_ip = port.mac[0].split(' ')[1]
+        ip_address = port_ip.split("/")[0]
+        self.add_bgp_route(port_ip, port)
+        if ip_address in exposed_ips:
+            # remove each ip to add from the list of current ips on dev OVN
+            exposed_ips.remove(ip_address)
+        if (ip_address in ovn_ip_rules.keys() and
+                self._use_rules):
+            del ovn_ip_rules[ip_address]
+
+    def _ensure_network_exposed(self, router_port, gateway, exposed_ips,
+                                ovn_ip_rules):
+        try:
+            router_port_ip = router_port.mac[0].split(' ')[1]
+        except IndexError:
+            return
+        if router_port_ip.split('/')[0] == gateway['ip']:
+            return
+        self.ovn_local_lrps.append(router_port.logical_port)
+        self._add_ip_rule(router_port_ip,
+                            gateway['provider_datapath'])
+        network_port = self.sb_idl.get_port_datapath(
+            router_port.options['peer'])
+        if network_port:
+            ports = self.sb_idl.get_ports_on_datapath(
+                network_port)
+            for port in ports:
+                if port.type != "":
+                    continue
+                try:
+                    ip_address = port.mac[0].split(' ')[1]
+                except IndexError:
+                    continue
+                with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
+                    iface.add_ip('%s/%s' % (ip_address, 32))
+                if ip_address in exposed_ips:
+                    exposed_ips.remove(ip_address)
+                if ip_address in ovn_ip_rules.keys():
+                    del ovn_ip_rules[ip_address]
+
+    def _get_exposed_ips(self):
+        exposed_ips = []
+        with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
+            exposed_ips = [ip[0] for ip in iface.ipaddr
+                           if ip[1] == 32 or ip[1] == 128]
+        return exposed_ips
+
+    def _get_ovn_ip_rules(self):
+        # get the rules pointing to ovn bridges
+        created_ip_rules = {}
+        if self._use_rules:
+            for table in self.ovn_routing_tables.values():
+                for rule in ip.get_rules(table=table):
+                    dst = rule.get_attrs('FRA_DST')[0]
+                    mask = rule['dst_len']
+                    created_ip_rules[dst] = {'table': table, 'mask': mask}
+        return created_ip_rules
+
+    def _delete_exposed_ips(self, ips):
+        with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
+            for ip in ips:
+                # TODO: add ipv6 support
+                iface.del_ip(ip, 32)
+
+    def _delete_ovn_ip_rules(self, ovn_ip_rules):
+        ip = pyroute2.IPRoute()
+        for rule_ip, rule_info in ovn_ip_rules.items():
+            rule = {'dst': '{}/{}'.format(rule_ip, rule_info['mask']),
+                    'table': rule_info['table']}
+            ip.rule('del', **rule)
+
     def sync(self):
         ipdb = pyroute2.IPDB()
-        ip = pyroute2.IPRoute()
         print("Ensuring VRF configuration for advertising routes")
         # Create VRF
         self._ensure_vrf(constants.OVN_BGP_VRF, constants.OVN_BGP_VRF_TABLE)
@@ -255,37 +331,15 @@ class BGPAgent(object):
                 self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
 
         print("Sync current routes.")
-        # get all the ips on ovn dev
-        exposed_ips = []
-        with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
-            exposed_ips = [ip[0] for ip in iface.ipaddr
-                           if ip[1] == 32 or ip[1] == 128]
+        exposed_ips = self._get_exposed_ips()
         # get the rules pointing to ovn bridges
-        created_ip_rules = {}
-        if self._use_rules:
-            for table in self.ovn_routing_tables.values():
-                for rule in ip.get_rules(table=table):
-                    dst = rule.get_attrs('FRA_DST')[0]
-                    mask = rule['dst_len']
-                    created_ip_rules[dst] = {'table': table, 'mask': mask}
+        ovn_ip_rules = self._get_ovn_ip_rules()
 
         # add missing routes/ips for fips/provider VMs
         ports = self.sb_idl.get_ports_on_chassis(self.chassis)
         for port in ports:
-            if port.type not in constants.OVN_VIF_PORT_TYPES:
-                continue
-            if (len(port.mac[0].split(' ')) != 2 and
-                    len(port.mac[0].split(' ')) != 3):
-                continue
-            port_ip = port.mac[0].split(' ')[1]
-            ip_address = port_ip.split("/")[0]
-            self.add_bgp_route(port_ip, port)
-            if ip_address in exposed_ips:
-                # remove each ip to add from the list of current ips on dev OVN
-                exposed_ips.remove(ip_address)
-            if (ip_address in created_ip_rules.keys() and
-                    self._use_rules):
-                del created_ip_rules[ip_address]
+            self._ensure_port_exposed(port, exposed_ips, ovn_ip_rules)
+
         # add missing route/ips for tenant network VMs
         if self._use_rules and self._expose_tenant_networks:
             for cr_lrp_info in self.ovn_local_cr_lrps.values():
@@ -294,46 +348,15 @@ class BGPAgent(object):
                 for lrp in lrp_ports:
                     if lrp.chassis:
                         continue
-                    try:
-                        lrp_ip = lrp.mac[0].split(' ')[1]
-                    except IndexError:
-                        continue
-                    if lrp_ip.split('/')[0] == cr_lrp_info['ip']:
-                        continue
-                    self.ovn_local_lrps.append(lrp)
-                    self._add_ip_rule(lrp_ip,
-                                      cr_lrp_info['provider_datapath'])
-                    lrp_network = self.sb_idl.get_port_datapath(
-                        lrp.options['peer'])
-                    if lrp_network:
-                        network_ports = self.sb_idl.get_ports_on_datapath(
-                            lrp_network)
-                        for port in network_ports:
-                            if port.type != "":
-                                continue
-                            try:
-                                ip_address = port.mac[0].split(' ')[1]
-                            except IndexError:
-                                continue
-                            with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
-                                iface.add_ip('%s/%s' % (ip_address, 32))
-                            if ip_address in exposed_ips:
-                                exposed_ips.remove(ip_address)
-                            if ip_address in created_ip_rules.keys():
-                                del created_ip_rules[ip_address]
+                    self._ensure_network_exposed(
+                        lrp, cr_lrp_info, exposed_ips, ovn_ip_rules)
 
         # remove extra routes/ips
         # remove all the leftovers on the list of current ips on dev OVN
-        with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
-            for ip in exposed_ips:
-                # TODO: add ipv6 support
-                iface.del_ip(ip, 32)
+        self._delete_exposed_ips(exposed_ips)
         # remove all the leftovers on the list of current ip rules for ovn
         # bridges
-        for rule_ip, rule_info in created_ip_rules.items():
-            rule = {'dst': '{}/{}'.format(rule_ip, rule_info['mask']),
-                    'table': rule_info['table']}
-            ip.rule('del', **rule)
+        self._delete_ovn_ip_rules(ovn_ip_rules)
 
     def add_bgp_route(self, ip_address, row):
         '''Advertice BGP route by adding IP to device.
@@ -499,7 +522,7 @@ class BGPAgent(object):
                 iface.del_ip('%s/%s' % (ip_address, 32))
 
     def add_subnet_rules(self, ip_address, logical_port, datapath):
-        cr_lrp = self.sb_idl.is_router_gateway_chassis(datapath,
+        cr_lrp = self.sb_idl.is_router_gateway_on_chassis(datapath,
                                                        self.chassis)
         if cr_lrp:
             print("Add IP Rules for network {} on chassis {}".format(
@@ -511,7 +534,7 @@ class BGPAgent(object):
                 self._add_ip_rule(ip_address, cr_lrp_datapath)
 
     def del_subnet_rules(self, ip_address, logical_port, datapath):
-        cr_lrp = self.sb_idl.is_router_gateway_chassis(datapath,
+        cr_lrp = self.sb_idl.is_router_gateway_on_chassis(datapath,
                                                        self.chassis)
         if cr_lrp:
             print("Delete IP Rules for network {} on chassis {}".format(
