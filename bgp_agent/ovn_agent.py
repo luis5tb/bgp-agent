@@ -483,7 +483,7 @@ class BGPAgent(object):
                         cr_lrp_datapath)
                     self._del_ip_rule(cr_lrp_ip, rule_bridge,
                                       lladdr=row.mac[0].split(' ')[0])
-                    self._del_ip_route(cr_lrp_ip, rule_bridge)
+                    self._del_ip_route(cr_lrp_ip.split("/")[0], rule_bridge)
 
     def add_bgp_fip_route(self, nat, datapath):
         # NOTE: Works the same as add_bgp_route. However as there is an option
@@ -638,7 +638,7 @@ class BGPAgent(object):
             ipdb.routes.tables[rule_table][route]
             print("Route already existing: {}".format(route))
         except KeyError:
-            ipdb.routes.add(**route).commit()
+            ipdb.routes.add(route).commit()
             print("Route created at table {}: {}".format(rule_table, route))
 
     def _del_ip_route(self, ip_address, bridge, mask=32, via=None):

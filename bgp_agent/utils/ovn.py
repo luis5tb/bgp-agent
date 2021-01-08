@@ -122,7 +122,7 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
     def is_port_on_chassis(self, port_name, chassis):
         port_info = self._get_port_by_name(port_name)
         try:
-            if (port_info and port_info[0].type == "" and
+            if (port_info and port_info.type == "" and
                     port_info.chassis[0].name == chassis):
                 return True
         except IndexError:
@@ -139,7 +139,7 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
                 return row.options.get('network_name')
         return None
 
-    def is_router_gateway_chassis(self, datapath, chassis):
+    def is_router_gateway_on_chassis(self, datapath, chassis):
         port_info = self._get_ports_by_datapath(datapath, 'chassisredirect')
         try:
             if port_info and port_info[0].chassis[0].name == chassis:
