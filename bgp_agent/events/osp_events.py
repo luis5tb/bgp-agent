@@ -149,8 +149,7 @@ class SubnetRouterAttachedEvent(PortBindingChassisEvent):
             return
         with _SYNC_STATE_LOCK.read_lock():
             ip_address = row.mac[0].split(' ')[1]
-            self.agent.add_subnet_rules(ip_address, row.logical_port,
-                                        row.datapath)
+            self.agent.add_subnet_rules(ip_address, row)
 
 
 class SubnetRouterDetachedEvent(PortBindingChassisEvent):
@@ -174,8 +173,7 @@ class SubnetRouterDetachedEvent(PortBindingChassisEvent):
             return
         with _SYNC_STATE_LOCK.read_lock():
             ip_address = row.mac[0].split(' ')[1]
-            self.agent.del_subnet_rules(ip_address, row.logical_port,
-                                        row.datapath)
+            self.agent.del_subnet_rules(ip_address, row)
 
 
 class TenantPortCreatedEvent(PortBindingChassisEvent):
