@@ -16,6 +16,6 @@ OVN_VIF_PORT_TYPES = ("", "chassisredirect", )
 OVN_BGP_NIC = "ovn"
 OVN_BGP_VRF = "ovn-bgp-vrf"
 OVN_BGP_VRF_TABLE = 10
-OVS_CONNECTION_STRING = "unix:/usr/local/var/run/openvswitch/db.sock"
+OVS_CONNECTION_STRING = "unix:/var/run/openvswitch/db.sock"
 OVS_RULE_COOKIE = "999"
 

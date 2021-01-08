@@ -238,11 +238,13 @@ class BGPAgent(object):
         if router_port_ip.split('/')[0] == gateway['ip']:
             return
         self.ovn_local_lrps.append(router_port.logical_port)
-        self._add_ip_rule(router_port_ip,
-                            gateway['provider_datapath'])
+        rule_bridge = self._get_bridge_for_datapath(
+            gateway['provider_datapath'])
+        self._add_ip_rule(router_port_ip, rule_bridge)
         network_port = self.sb_idl.get_port_datapath(
             router_port.options['peer'])
         if network_port:
+            ipdb = pyroute2.IPDB()
             ports = self.sb_idl.get_ports_on_datapath(
                 network_port)
             for port in ports:
@@ -260,6 +262,7 @@ class BGPAgent(object):
                     del ovn_ip_rules[ip_address]
 
     def _get_exposed_ips(self):
+        ipdb = pyroute2.IPDB()
         exposed_ips = []
         with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
             exposed_ips = [ip[0] for ip in iface.ipaddr
@@ -267,17 +270,19 @@ class BGPAgent(object):
         return exposed_ips
 
     def _get_ovn_ip_rules(self):
+        ip = pyroute2.IPRoute()
         # get the rules pointing to ovn bridges
-        created_ip_rules = {}
+        ovn_ip_rules = {}
         if self._use_rules:
             for table in self.ovn_routing_tables.values():
                 for rule in ip.get_rules(table=table):
                     dst = rule.get_attrs('FRA_DST')[0]
                     mask = rule['dst_len']
-                    created_ip_rules[dst] = {'table': table, 'mask': mask}
-        return created_ip_rules
+                    ovn_ip_rules[dst] = {'table': table, 'mask': mask}
+        return ovn_ip_rules
 
     def _delete_exposed_ips(self, ips):
+        ipdb = pyroute2.IPDB()
         with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
             for ip in ips:
                 # TODO: add ipv6 support
@@ -381,7 +386,8 @@ class BGPAgent(object):
             with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                 iface.add_ip('%s/%s' % (ip_address, 32))
             if self._use_rules:
-                self._add_ip_rule(ip_address, row.datapath)
+                rule_bridge = self._get_bridge_for_datapath(row.datapath)
+                self._add_ip_rule(ip_address, rule_bridge)
 
         # VM with FIP
         elif row.type == "":
@@ -393,7 +399,8 @@ class BGPAgent(object):
                 with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                     iface.add_ip('%s/%s' % (fip_address, 32))
                 if self._use_rules:
-                    self._add_ip_rule(fip_address, fip_datapath)
+                    rule_bridge = self._get_bridge_for_datapath(fip_datapath)
+                    self._add_ip_rule(fip_address, rule_bridge)
 
         # CR-LRP Port
         elif (row.type == "chassisredirect" and
@@ -414,8 +421,10 @@ class BGPAgent(object):
                 with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                     iface.add_ip('%s/%s' % (cr_lrp_address, 32))
                 if self._use_rules:
-                    self._add_ip_rule(cr_lrp_address, cr_lrp_datapath,
+                    rule_bridge = self._get_bridge_for_datapath(cr_lrp_datapath)
+                    self._add_ip_rule(cr_lrp_address, rule_bridge,
                                       lladdr=row.mac[0].split(' ')[0])
+                    self._add_ip_route(cr_lrp_address, rule_bridge)
 
     def delete_bgp_route(self, ip_address, row):
         '''Withdraw BGP route by removing IP from device.
@@ -440,7 +449,8 @@ class BGPAgent(object):
             with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                 iface.del_ip('%s/%s' % (ip_address, 32))
             if self._use_rules:
-                self._del_ip_rule(ip_address, row.datapath)
+                rule_bridge = self._get_bridge_for_datapath(row.datapath)
+                self._del_ip_rule(ip_address, rule_bridge)
         # VM with FIP
         elif row.type == "":
             fip_address, fip_datapath = self.sb_idl.get_fip_associated(
@@ -452,7 +462,8 @@ class BGPAgent(object):
                 with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                     iface.del_ip('%s/%s' % (fip_address, 32))
                 if self._use_rules:
-                    self._del_ip_rule(fip_address, fip_datapath)
+                    rule_bridge = self._get_bridge_for_datapath(fip_datapath)
+                    self._del_ip_rule(fip_address, rule_bridge)
         elif (row.type == "chassisredirect" and
               row.logical_port.startswith('cr-')):
             cr_lrp_ip = '{}/32'.format(ip_address.split("/")[0])
@@ -468,8 +479,11 @@ class BGPAgent(object):
                 with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                     iface.del_ip(cr_lrp_ip)
                 if self._use_rules:
-                    self._del_ip_rule(cr_lrp_ip, cr_lrp_datapath,
+                    rule_bridge = self._get_bridge_for_datapath(
+                        cr_lrp_datapath)
+                    self._del_ip_rule(cr_lrp_ip, rule_bridge,
                                       lladdr=row.mac[0].split(' ')[0])
+                    self._del_ip_route(cr_lrp_ip, rule_bridge)
 
     def add_bgp_fip_route(self, nat, datapath):
         # NOTE: Works the same as add_bgp_route. However as there is an option
@@ -487,7 +501,8 @@ class BGPAgent(object):
                 iface.add_ip('%s/%s' % (fip_address, 32))
 
             if self._use_rules:
-                self._add_ip_rule(fip_address, datapath)
+                rule_bridge = self._get_bridge_for_datapath(datapath)
+                self._add_ip_rule(fip_address, rule_bridge)
 
     def delete_bgp_fip_route(self, nat, datapath):
         # example: "fa:16:3e:70:ad:b1 172.24.4.176
@@ -501,7 +516,8 @@ class BGPAgent(object):
                 iface.del_ip('%s/%s' % (fip_address, 32))
 
             if self._use_rules:
-                self._del_ip_rule(fip_address, datapath)
+                rule_bridge = self._get_bridge_for_datapath(datapath)
+                self._del_ip_rule(fip_address, rule_bridge)
 
     def add_subnet_bgp_route(self, ip_address, datapath):
         port_lrp = self.sb_idl.get_lrp_port_for_datapath(datapath)
@@ -528,10 +544,16 @@ class BGPAgent(object):
             print("Add IP Rules for network {} on chassis {}".format(
                 ip_address, self.chassis))
             self.ovn_local_lrps.append(logical_port)
-            cr_lrp_datapath = self.ovn_local_cr_lrps.get(cr_lrp, {}).get(
-                'provider_datapath')
+            cr_lrp_info = self.ovn_local_cr_lrps.get(cr_lrp, {})
+            cr_lrp_datapath = cr_lrp_info.get('provider_datapath')
+            cr_lrp_ip = cr_lrp_info.get('ip')
             if cr_lrp_datapath and self._use_rules:
-                self._add_ip_rule(ip_address, cr_lrp_datapath)
+                rule_bridge = self._get_bridge_for_datapath(cr_lrp_datapath)
+                self._add_ip_rule(ip_address, rule_bridge)
+                self._add_ip_route(ip_address.split("/")[0],
+                                   rule_bridge,
+                                   mask=ip_address.split("/")[1],
+                                   via=cr_lrp_ip)
 
     def del_subnet_rules(self, ip_address, logical_port, datapath):
         cr_lrp = self.sb_idl.is_router_gateway_on_chassis(datapath,
@@ -541,58 +563,97 @@ class BGPAgent(object):
                 ip_address, self.chassis))
             if logical_port in self.ovn_local_lrps:
                 self.ovn_local_lrps.remove(logical_port)
-            cr_lrp_datapath = self.ovn_local_cr_lrps.get(cr_lrp, {}).get(
-                'provider_datapath')
+            cr_lrp_info = self.ovn_local_cr_lrps.get(cr_lrp, {})
+            cr_lrp_datapath = cr_lrp_info.get('provider_datapath')
+            cr_lrp_ip = cr_lrp_info.get('ip')
             if cr_lrp_datapath and self._use_rules:
-                self._del_ip_rule(ip_address, cr_lrp_datapath)
+                rule_bridge = self._get_bridge_for_datapath(cr_lrp_datapath)
+                self._del_ip_rule(ip_address, rule_bridge)
+                self._del_ip_route(ip_address.split("/")[0],
+                                   rule_bridge,
+                                   mask=ip_address.split("/")[1],
+                                   via=cr_lrp_ip)
 
-    def _add_ip_rule(self, ip, datapath, lladdr=None):
+    def _get_bridge_for_datapath(self, datapath):
         network_name = self.sb_idl.get_network_name(datapath)
         if network_name:
-            network_bridge = self.ovn_bridge_mappings[network_name]
-            rule = {'dst': ip,
-                    'table': self.ovn_routing_tables[network_bridge]}
-            # REMOVEME: due to a problem with pyroute, look for the rule too
-            # without the mask
-            rule_aux = {'dst': ip.split("/")[0],
-                        'table': self.ovn_routing_tables[network_bridge]}
-            iproute = pyroute2.IPRoute()
-            if (not iproute.get_rules(**rule) and
-                    not iproute.get_rules(**rule_aux)):
-                iproute.rule('add', **rule)
-            if lladdr:
-                # This is doing something like:
-                # sudo ip nei replace 172.24.4.69
-                # lladdr fa:16:3e:d3:5d:7b dev br-ex nud permanent
-                network_bridge_if = iproute.link_lookup(
-                    ifname=network_bridge)[0]
-                iproute.neigh('set',
-                              dst=ip,
-                              lladdr=lladdr,
-                              ifindex=network_bridge_if,
-                              state=ndmsg.states['permanent'])
+            return self.ovn_bridge_mappings[network_name]
 
-    def _del_ip_rule(self, ip, datapath, lladdr=None):
-        network_name = self.sb_idl.get_network_name(datapath)
-        if network_name:
-            network_bridge = self.ovn_bridge_mappings[network_name]
-            rule = {'dst': ip,
-                    'table': self.ovn_routing_tables[network_bridge]}
-            # REMOVEME: due to a problem with pyroute, look for the rule too
-            # without the mask
-            rule_aux = {'dst': ip.split("/")[0],
-                        'table': self.ovn_routing_tables[network_bridge]}
+    def _add_ip_rule(self, ip, bridge, lladdr=None):
+        rule = {'dst': ip,
+                'table': self.ovn_routing_tables[bridge]}
+        # REMOVEME: due to a problem with pyroute, look for the rule too
+        # without the mask
+        rule_aux = {'dst': ip.split("/")[0],
+                    'table': self.ovn_routing_tables[bridge]}
+        iproute = pyroute2.IPRoute()
+        if (not iproute.get_rules(**rule) and
+                not iproute.get_rules(**rule_aux)):
+            iproute.rule('add', **rule)
+        if lladdr:
+            # This is doing something like:
+            # sudo ip nei replace 172.24.4.69
+            # lladdr fa:16:3e:d3:5d:7b dev br-ex nud permanent
+            network_bridge_if = iproute.link_lookup(
+                ifname=bridge)[0]
+            iproute.neigh('set',
+                            dst=ip,
+                            lladdr=lladdr,
+                            ifindex=network_bridge_if,
+                            state=ndmsg.states['permanent'])
+
+    def _del_ip_rule(self, ip, bridge, lladdr=None):
+        rule = {'dst': ip,
+                'table': self.ovn_routing_tables[bridge]}
+        # REMOVEME: due to a problem with pyroute, look for the rule too
+        # without the mask
+        rule_aux = {'dst': ip.split("/")[0],
+                    'table': self.ovn_routing_tables[bridge]}
+        iproute = pyroute2.IPRoute()
+        if iproute.get_rules(**rule) or iproute.get_rules(**rule_aux):
+            iproute.rule('del', **rule)
+        if lladdr:
+            # This is doing something like:
+            # sudo ip nei del 172.24.4.69
+            # lladdr fa:16:3e:d3:5d:7b dev br-ex nud permanent
+            network_bridge_if = iproute.link_lookup(
+                ifname=bridge)[0]
+            iproute.neigh('del',
+                            dst=ip.split("/")[0],
+                            lladdr=lladdr,
+                            ifindex=network_bridge_if,
+                            state=ndmsg.states['permanent'])
+
+    def _add_ip_route(self, ip_address, bridge, mask=32, via=None):
+        rule_table = self.ovn_routing_tables[bridge]
+        ipdb = pyroute2.IPDB()
+        ip = '{}/{}'.format(ip_address, mask)
+        if via:
+            route = {'dst': ip, 'gateway': via, 'table': rule_table}
+        else:
             iproute = pyroute2.IPRoute()
-            if iproute.get_rules(**rule) or iproute.get_rules(**rule_aux):
-                iproute.rule('del', **rule)
-            if lladdr:
-                # This is doing something like:
-                # sudo ip nei del 172.24.4.69
-                # lladdr fa:16:3e:d3:5d:7b dev br-ex nud permanent
-                network_bridge_if = iproute.link_lookup(
-                    ifname=network_bridge)[0]
-                iproute.neigh('del',
-                              dst=ip.split("/")[0],
-                              lladdr=lladdr,
-                              ifindex=network_bridge_if,
-                              state=ndmsg.states['permanent'])
+            oif = iproute.link_lookup(ifname=bridge)[0]
+            route = {'dst': ip, 'oif': oif, 'table': rule_table}
+        try:
+            ipdb.routes.tables[rule_table][route]
+            print("Route already existing: {}".format(route))
+        except KeyError:
+            ipdb.routes.add(**route).commit()
+            print("Route created at table {}: {}".format(rule_table, route))
+
+    def _del_ip_route(self, ip_address, bridge, mask=32, via=None):
+        rule_table = self.ovn_routing_tables[bridge]
+        ipdb = pyroute2.IPDB()
+        ip = '{}/{}'.format(ip_address, mask)
+        if via:
+            route = {'dst': ip, 'gateway': via, 'table': rule_table}
+        else:
+            iproute = pyroute2.IPRoute()
+            oif = iproute.link_lookup(ifname=bridge)[0]
+            route = {'dst': ip, 'oif': oif, 'table': rule_table}
+        try:
+            with ipdb.routes.tables[rule_table][route] as r:
+                r.remove()
+            print("Route deleted at table {}: {}".format(rule_table, route))
+        except KeyError:
+            print("Route already deleted: {}".format(route))
