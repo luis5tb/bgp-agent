@@ -279,6 +279,15 @@ class BGPAgent(object):
                            if ip[1] == 32 or ip[1] == 128]
         return exposed_ips
 
+    def _get_exposed_ips_on_network(self, network):
+        ipdb = pyroute2.IPDB()
+        exposed_ips = []
+        with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
+            exposed_ips = [ip[0] for ip in iface.ipaddr
+                           if ((ip[1] == 32 or ip[1] == 128) and
+                               ipaddress.ip_address(ip[0]) in network)]
+        return exposed_ips
+
     def _get_ovn_ip_rules(self):
         ip = pyroute2.IPRoute()
         # get the rules pointing to ovn bridges
@@ -612,6 +621,12 @@ class BGPAgent(object):
                                    rule_bridge,
                                    mask=ip_address.split("/")[1],
                                    via=cr_lrp_ip)
+
+                # Check if there are VMs on the network
+                # and if so withdraw the routes
+                net = ipaddress.IPv4Network(ip_address, strict=False)
+                vms_on_net = self._get_exposed_ips_on_network(net)
+                self._delete_exposed_ips(vms_on_net)
 
     def _get_bridge_for_datapath(self, datapath):
         network_name = self.sb_idl.get_network_name(datapath)
