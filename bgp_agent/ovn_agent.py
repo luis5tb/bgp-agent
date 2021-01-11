@@ -271,6 +271,27 @@ class BGPAgent(object):
                 if ip_address in ovn_ip_rules.keys():
                     del ovn_ip_rules[ip_address]
 
+    def _remove_network_exposed(self, router_port, gateway, exposed_ips=[],
+                                ovn_ip_rules={}):
+        try:
+            router_port_ip = router_port.mac[0].split(' ')[1]
+        except IndexError:
+            return
+        if router_port_ip.split('/')[0] == gateway['ip']:
+            return
+        self.ovn_local_lrps.remove(router_port.logical_port)
+        rule_bridge = self._get_bridge_for_datapath(
+            gateway['provider_datapath'])
+        self._del_ip_rule(router_port_ip, rule_bridge)
+        self._del_ip_route(router_port_ip.split("/")[0],
+                           rule_bridge,
+                           mask=router_port_ip.split("/")[1],
+                           via=gateway['ip'])
+
+        net = ipaddress.IPv4Network(router_port_ip, strict=False)
+        vms_on_net = self._get_exposed_ips_on_network(net)
+        self._delete_exposed_ips(vms_on_net)
+
     def _get_exposed_ips(self):
         ipdb = pyroute2.IPDB()
         exposed_ips = []
@@ -503,7 +524,6 @@ class BGPAgent(object):
                     cr_lrp_ip))
                 # Removing information about the associated network for
                 # tenant network advertisement
-                del self.ovn_local_cr_lrps[row.logical_port]
                 ipdb = pyroute2.IPDB()
                 with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                     iface.del_ip(cr_lrp_ip)
@@ -513,6 +533,17 @@ class BGPAgent(object):
                     self._del_ip_rule(cr_lrp_ip, rule_bridge,
                                       lladdr=row.mac[0].split(' ')[0])
                     self._del_ip_route(cr_lrp_ip.split("/")[0], rule_bridge)
+
+                    # Check if there are networks attached to the router,
+                    # and if so, delete the needed routes/rules
+                    lrp_ports = self.sb_idl.get_lrp_ports_for_router(
+                        row.datapath)
+                    for lrp in lrp_ports:
+                        if lrp.chassis:
+                            continue
+                        self._remove_network_exposed(
+                            lrp, self.ovn_local_cr_lrps[row.logical_port])
+                del self.ovn_local_cr_lrps[row.logical_port]
 
     def add_bgp_fip_route(self, nat, datapath):
         # NOTE: Works the same as add_bgp_route. However as there is an option
