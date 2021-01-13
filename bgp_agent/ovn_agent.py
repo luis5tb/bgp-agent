@@ -580,6 +580,8 @@ class BGPAgent(object):
                 self._del_ip_rule(fip_address, rule_bridge)
 
     def add_subnet_bgp_route(self, ip_address, datapath):
+        if self.sb_idl.is_provider_network(datapath):
+            return
         port_lrp = self.sb_idl.get_lrp_port_for_datapath(datapath)
         if port_lrp in self.ovn_local_lrps:
             print("Add BGP route for tenant IP {} on chassis {}".format(
@@ -589,6 +591,8 @@ class BGPAgent(object):
                 iface.add_ip('%s/%s' % (ip_address, 32))
 
     def del_subnet_bgp_route(self, ip_address, datapath):
+        if self.sb_idl.is_provider_network(datapath):
+            return
         port_lrp = self.sb_idl.get_lrp_port_for_datapath(datapath)
         if port_lrp in self.ovn_local_lrps:
             print("Delete BGP route for tenant IP {} on chassis {}".format(
