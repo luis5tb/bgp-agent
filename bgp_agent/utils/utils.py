@@ -12,13 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-OVN_VIF_PORT_TYPES = ("", "chassisredirect", )
-OVN_BGP_NIC = "ovn"
-OVN_BGP_VRF = "ovn-bgp-vrf"
-OVN_BGP_VRF_TABLE = 10
-OVS_CONNECTION_STRING = "unix:/var/run/openvswitch/db.sock"
-OVS_RULE_COOKIE = "999"
+import ipaddress
 
-IP_VERSION_6 = 6
-IP_VERSION_4 = 4
-
+def get_ip_version(ip):
+    return ipaddress.ip_address(ip.split('/')[0]).version
