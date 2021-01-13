@@ -51,8 +51,11 @@ class PortBindingChassisCreatedEvent(PortBindingChassisEvent):
         if row.type not in constants.OVN_VIF_PORT_TYPES:
             return
         with _SYNC_STATE_LOCK.read_lock():
-            ip_address = row.mac[0].split(' ')[1]
-            self.agent.add_bgp_route(ip_address, row)
+            ips = [row.mac[0].split(' ')[1]]
+            # for dual-stack
+            if len(row.mac[0].split(' ')) == 3:
+                ips.append(row.mac[0].split(' ')[2])
+            self.agent.add_bgp_route(ips, row)
 
 
 class PortBindingChassisDeletedEvent(PortBindingChassisEvent):
@@ -80,8 +83,11 @@ class PortBindingChassisDeletedEvent(PortBindingChassisEvent):
         if row.type not in constants.OVN_VIF_PORT_TYPES:
             return
         with _SYNC_STATE_LOCK.read_lock():
-            ip_address = row.mac[0].split(' ')[1]
-            self.agent.delete_bgp_route(ip_address, row)
+            ips = [row.mac[0].split(' ')[1]]
+            # for dual-stack
+            if len(row.mac[0].split(' ')) == 3:
+                ips.append(row.mac[0].split(' ')[2])
+            self.agent.delete_bgp_route(ips, row)
 
 
 class FIPSetEvent(PortBindingChassisEvent):
@@ -197,8 +203,11 @@ class TenantPortCreatedEvent(PortBindingChassisEvent):
         if row.type != "":
             return
         with _SYNC_STATE_LOCK.read_lock():
-            ip_address = row.mac[0].split(' ')[1]
-            self.agent.add_subnet_bgp_route(ip_address, row.datapath)
+            ips = [row.mac[0].split(' ')[1]]
+            # for dual-stack
+            if len(row.mac[0].split(' ')) == 3:
+                ips.append(row.mac[0].split(' ')[2])
+            self.agent.add_subnet_bgp_route(ips, row.datapath)
 
 
 class TenantPortDeletedEvent(PortBindingChassisEvent):
@@ -221,8 +230,11 @@ class TenantPortDeletedEvent(PortBindingChassisEvent):
         if row.type != "":
             return
         with _SYNC_STATE_LOCK.read_lock():
-            ip_address = row.mac[0].split(' ')[1]
-            self.agent.del_subnet_bgp_route(ip_address, row.datapath)
+            ips = [row.mac[0].split(' ')[1]]
+            # for dual-stack
+            if len(row.mac[0].split(' ')) == 3:
+                ips.append(row.mac[0].split(' ')[2])
+            self.agent.del_subnet_bgp_route(ips, row.datapath)
 
 
 class ChassisCreateEventBase(row_event.RowEvent):
