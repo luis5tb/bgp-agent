@@ -366,6 +366,9 @@ class BGPAgent(object):
                     'ovs-vsctl',
                     ['get', 'Interface', ovs_port, 'ofport'])[0].rstrip()
                 flows_info[bridge]['in_port'] = ovs_ofport
+            else:
+                flow = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
+                self._ovs_cmd('ovs-ofctl', ['del-flows', bridge, flow])
         # 4) Add flows for each bridge mappings
         for bridge, info in flows_info.items():
             if info.get('in_port'):
@@ -374,6 +377,17 @@ class BGPAgent(object):
                            constants.OVS_RULE_COOKIE, info['in_port'],
                            info['mac']))
                 self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
+
+                cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
+                port='in_port={}'.format(info.get('in_port'))
+                current_flows = self._ovs_cmd('ovs-ofctl', ['dump-flows', bridge,
+                                                        cookie])[0].split('\n')[1:]
+                for flow in current_flows:
+                    if not flow or port in flow:
+                        continue
+                    in_port = flow.split("in_port=")[1].split(" ")[0]
+                    del_flow = ('{},in_port={}').format(cookie, in_port)
+                    self._ovs_cmd('ovs-ofctl', ['del-flows', bridge, del_flow])
 
         print("Sync current routes.")
         exposed_ips = self._get_exposed_ips()
