@@ -249,7 +249,13 @@ class BGPAgent(object):
         if len(port.mac[0].split(' ')) == 3:
             port_ips.append(port.mac[0].split(' ')[2])
 
-        self.add_bgp_route(port_ips, port)
+        fip = self.add_bgp_route(port_ips, port)
+        if fip:
+            if fip in exposed_ips:
+                exposed_ips.remove(fip)
+            if self._use_rules and fip in ovn_ip_rules.keys():
+                del ovn_ip_rules[fip]
+
         for port_ip in port_ips:
             ip_address = port_ip.split("/")[0]
             if ip_address in exposed_ips:
@@ -531,6 +537,7 @@ class BGPAgent(object):
                 if self._use_rules:
                     rule_bridge = self._get_bridge_for_datapath(fip_datapath)
                     self._add_ip_rule(fip_address, rule_bridge)
+                return fip_address
             else:
                 self._ensure_bridge_ovs_flows()
 
