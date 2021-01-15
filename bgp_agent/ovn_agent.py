@@ -976,16 +976,9 @@ class BGPAgent(object):
             print("Route already deleted: {}".format(route))
 
     def _ensure_bridge_ovs_flows(self):
+        ipdb = pyroute2.IPDB()
         cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
         for bridge in self.ovn_bridge_mappings.values():
-            current_flows = self._ovs_cmd(
-                'ovs-ofctl', ['dump-flows', bridge, cookie]
-                )[0].split('\n')[1:-1]
-            if len(current_flows) == 1:
-                # assume the rule is the right one as it has the right cookie
-                continue
-
-            ipdb = pyroute2.IPDB()
             mac = None
             with ipdb.interfaces[bridge] as iface:
                 mac = iface.address
@@ -996,6 +989,15 @@ class BGPAgent(object):
             ovs_ofport = self._ovs_cmd(
                 'ovs-vsctl', ['get', 'Interface', ovs_port, 'ofport']
                 )[0].rstrip()
+            flow_filter = ('{},in_port={}').format(cookie, ovs_ofport)
+            current_flows = self._ovs_cmd(
+                'ovs-ofctl', ['dump-flows', bridge, flow_filter]
+                )[0].split('\n')[1:-1]
+            if len(current_flows) == 1:
+                # assume the rule is the right one as it has the right cookie
+                # and in_port
+                continue
+
             flow = ("cookie={},priority=1000,ip,in_port={},"
                     "actions=mod_dl_dst:{},NORMAL".format(
                      constants.OVS_RULE_COOKIE, ovs_ofport, mac))
