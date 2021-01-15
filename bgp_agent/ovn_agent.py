@@ -62,13 +62,13 @@ class BGPAgent(object):
                   'Chassis')
         if self._expose_tenant_networks:
             events = (osp_events.PortBindingChassisCreatedEvent(self),
-                    osp_events.PortBindingChassisDeletedEvent(self),
-                    osp_events.FIPSetEvent(self),
-                    osp_events.FIPUnsetEvent(self),
-                    osp_events.SubnetRouterAttachedEvent(self),
-                    osp_events.SubnetRouterDetachedEvent(self),
-                    osp_events.TenantPortCreatedEvent(self),
-                    osp_events.TenantPortDeletedEvent(self))
+                      osp_events.PortBindingChassisDeletedEvent(self),
+                      osp_events.FIPSetEvent(self),
+                      osp_events.FIPUnsetEvent(self),
+                      osp_events.SubnetRouterAttachedEvent(self),
+                      osp_events.SubnetRouterDetachedEvent(self),
+                      osp_events.TenantPortCreatedEvent(self),
+                      osp_events.TenantPortDeletedEvent(self))
         else:
             events = (osp_events.PortBindingChassisCreatedEvent(self),
                       osp_events.PortBindingChassisDeletedEvent(self),
@@ -81,14 +81,16 @@ class BGPAgent(object):
                 self.ovn_remote,
                 chassis=self.chassis,
                 tables=tables + ('Chassis_Private', ),
-                events=events + (osp_events.ChassisPrivateCreateEvent(self), )).start()
+                events=events + (osp_events.ChassisPrivateCreateEvent(
+                    self), )).start()
             self.has_chassis_private = True
         except AssertionError:
             self.sb_idl = ovn.OvnSbIdl(
                 self.ovn_remote,
                 chassis=self.chassis,
                 tables=tables,
-                events=events + (osp_events.ChassisCreateEvent(self), )).start()
+                events=events + (osp_events.ChassisCreateEvent(
+                    self), )).start()
 
         print("BGP Agent Started...")
         # Do the initial sync.
@@ -176,17 +178,17 @@ class BGPAgent(object):
         # /etc/iproute2/rt_tables
         regex = '^[0-9]*[\s]*{}$'.format(bridge)
         matching_table = [line.replace('\t', ' ')
-                            for line in open('/etc/iproute2/rt_tables')
-                            if re.findall(regex, line)]
+                          for line in open('/etc/iproute2/rt_tables')
+                          if re.findall(regex, line)]
         if matching_table:
             table_info = matching_table[0].strip().split()
             self.ovn_routing_tables[table_info[1]] = int(table_info[0])
             print("Found routing table for {} with: {}".format(bridge,
-                    table_info))
+                  table_info))
         # if not raise configuration error and exit
         else:
             print(("Routing table for bridge {} must be configure "
-                    "at /etc/iproute2/rt_tables").format(bridge))
+                   "at /etc/iproute2/rt_tables").format(bridge))
             sys.exit()
 
         # add default route on that table if it does not exist
@@ -379,9 +381,10 @@ class BGPAgent(object):
                 self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
 
                 cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
-                port='in_port={}'.format(info.get('in_port'))
-                current_flows = self._ovs_cmd('ovs-ofctl', ['dump-flows', bridge,
-                                                        cookie])[0].split('\n')[1:]
+                port = 'in_port={}'.format(info.get('in_port'))
+                current_flows = self._ovs_cmd(
+                    'ovs-ofctl', ['dump-flows', bridge, cookie]
+                    )[0].split('\n')[1:-1]
                 for flow in current_flows:
                     if not flow or port in flow:
                         continue
@@ -455,6 +458,8 @@ class BGPAgent(object):
                 if self._use_rules:
                     rule_bridge = self._get_bridge_for_datapath(fip_datapath)
                     self._add_ip_rule(fip_address, rule_bridge)
+            else:
+                self._ensure_bridge_ovs_flows()
 
         # CR-LRP Port
         elif (row.type == "chassisredirect" and
@@ -475,7 +480,8 @@ class BGPAgent(object):
                 with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                     iface.add_ip('%s/%s' % (cr_lrp_address, 32))
                 if self._use_rules:
-                    rule_bridge = self._get_bridge_for_datapath(cr_lrp_datapath)
+                    rule_bridge = self._get_bridge_for_datapath(
+                        cr_lrp_datapath)
                     self._add_ip_rule(cr_lrp_address, rule_bridge,
                                       lladdr=row.mac[0].split(' ')[0])
                     self._add_ip_route(cr_lrp_address, rule_bridge)
@@ -617,7 +623,7 @@ class BGPAgent(object):
 
     def add_subnet_rules(self, ip_address, row):
         cr_lrp = self.sb_idl.is_router_gateway_on_chassis(row.datapath,
-                                                       self.chassis)
+                                                          self.chassis)
         if cr_lrp:
             print("Add IP Rules for network {} on chassis {}".format(
                 ip_address, self.chassis))
@@ -651,10 +657,9 @@ class BGPAgent(object):
                         with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                             iface.add_ip('%s/%s' % (ip_address, 32))
 
-
     def del_subnet_rules(self, ip_address, row):
         cr_lrp = self.sb_idl.is_router_gateway_on_chassis(row.datapath,
-                                                       self.chassis)
+                                                          self.chassis)
         if cr_lrp:
             print("Delete IP Rules for network {} on chassis {}".format(
                 ip_address, self.chassis))
@@ -735,11 +740,13 @@ class BGPAgent(object):
             net_ip = ipaddress.IPv4Network(ip, strict=False).network_address
             ip = '{}/{}'.format(net_ip, mask)
         if via:
-            route = {'dst': ip, 'gateway': via, 'table': rule_table, 'proto': 3, 'scope': 0}
+            route = {'dst': ip, 'gateway': via, 'table': rule_table,
+                     'proto': 3, 'scope': 0}
         else:
             iproute = pyroute2.IPRoute()
             oif = iproute.link_lookup(ifname=bridge)[0]
-            route = {'dst': ip, 'oif': oif, 'table': rule_table, 'proto': 3, 'scope': 253}
+            route = {'dst': ip, 'oif': oif, 'table': rule_table, 'proto': 3,
+                     'scope': 253}
         try:
             ipdb.routes.tables[rule_table][route]
             print("Route already existing: {}".format(route))
@@ -755,14 +762,55 @@ class BGPAgent(object):
             net_ip = ipaddress.IPv4Network(ip, strict=False).network_address
             ip = '{}/{}'.format(net_ip, mask)
         if via:
-            route = {'dst': ip, 'gateway': via, 'table': rule_table, 'proto': 3, 'scope': 0}
+            route = {'dst': ip, 'gateway': via, 'table': rule_table,
+                     'proto': 3, 'scope': 0}
         else:
             iproute = pyroute2.IPRoute()
             oif = iproute.link_lookup(ifname=bridge)[0]
-            route = {'dst': ip, 'oif': oif, 'table': rule_table, 'proto': 3, 'scope': 253}
+            route = {'dst': ip, 'oif': oif, 'table': rule_table, 'proto': 3,
+                     'scope': 253}
         try:
             with ipdb.routes.tables[rule_table][route] as r:
                 r.remove()
             print("Route deleted at table {}: {}".format(rule_table, route))
         except KeyError:
             print("Route already deleted: {}".format(route))
+
+    def _ensure_bridge_ovs_flows(self):
+        cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
+        for bridge in self.ovn_bridge_mappings.values():
+            current_flows = self._ovs_cmd(
+                'ovs-ofctl', ['dump-flows', bridge, cookie]
+                )[0].split('\n')[1:-1]
+            if len(current_flows) == 1:
+                # assume the rule is the right one as it has the right cookie
+                continue
+
+            ipdb = pyroute2.IPDB()
+            mac = None
+            with ipdb.interfaces[bridge] as iface:
+                mac = iface.address
+            ovs_port = self._ovs_cmd('ovs-vsctl',
+                                     ['list-ports', bridge])[0].rstrip()
+            if not ovs_port:
+                continue
+            ovs_ofport = self._ovs_cmd(
+                'ovs-vsctl', ['get', 'Interface', ovs_port, 'ofport']
+                )[0].rstrip()
+            flow = ("cookie={},priority=1000,ip,in_port={},"
+                    "actions=mod_dl_dst:{},NORMAL".format(
+                     constants.OVS_RULE_COOKIE, ovs_ofport, mac))
+            self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
+
+            # Remove unneeded flows
+            cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
+            port = 'in_port={}'.format(ovs_ofport)
+            current_flows = self._ovs_cmd(
+                    'ovs-ofctl', ['dump-flows', bridge, cookie]
+                    )[0].split('\n')[1:-1]
+            for flow in current_flows:
+                if not flow or port in flow:
+                    continue
+                in_port = flow.split("in_port=")[1].split(" ")[0]
+                del_flow = ('{},in_port={}').format(cookie, in_port)
+                self._ovs_cmd('ovs-ofctl', ['del-flows', bridge, del_flow])
