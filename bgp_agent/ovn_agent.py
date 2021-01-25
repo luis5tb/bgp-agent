@@ -453,7 +453,12 @@ class BGPAgent(object):
                         "actions=mod_dl_dst:{},NORMAL".format(
                            constants.OVS_RULE_COOKIE, info['in_port'],
                            info['mac']))
+                flow_v6 = ("cookie={},priority=1000,ipv6,in_port={},"
+                           "actions=mod_dl_dst:{},NORMAL".format(
+                              constants.OVS_RULE_COOKIE, info['in_port'],
+                              info['mac']))
                 self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
+                self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow_v6])
 
                 cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
                 port = 'in_port={}'.format(info.get('in_port'))
