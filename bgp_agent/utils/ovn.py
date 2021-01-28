@@ -129,6 +129,12 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
             pass
         return False
 
+    def is_port_deleted(self, port_name):
+        port_info = self._get_port_by_name(port_name)
+        if port_info:
+            return False
+        return True
+
     def get_ports_on_chassis(self, chassis):
         rows = self.db_list_rows('Port_Binding').execute(check_error=True)
         return [r for r in rows if r.chassis and r.chassis[0].name == chassis]

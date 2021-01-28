@@ -696,7 +696,11 @@ class BGPAgent(object):
         # example: "fa:16:3e:70:ad:b1 172.24.4.176
         # is_chassis_resident(\"0c60373b-b770-4946-8bb4-38b5dce99308\")"
         port = nat.split(" ")[2].split("\"")[1]
-        if self.sb_idl.is_port_on_chassis(port, self.chassis):
+        # NOTE: If the port that was attached to the FIP is already deleted,
+        # we cannot retrive the information about what chassis it was in,
+        # so, we ensure the FIP is not exposed anyway
+        if (self.sb_idl.is_port_on_chassis(port, self.chassis) or
+                self.sb_idl.is_port_deleted(port)):
             fip_address = nat.split(" ")[1]
             print("Delete BGP route for FIP with ip {}".format(fip_address))
             ipdb = pyroute2.IPDB()
