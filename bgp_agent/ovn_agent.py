@@ -55,7 +55,7 @@ class BGPAgent(object):
         self.ovn_routing_tables = {}  # {'br-ex': 200}
         self.ovn_bridge_mappings = {}  # {'public': 'br-ex'}
         self.ovn_local_cr_lrps = {}
-        self.ovn_local_lrps = []
+        self.ovn_local_lrps = set([])
 
         self.ovs_idl = ovs.OvsIdl().start(constants.OVS_CONNECTION_STRING)
         self._load_config()
@@ -271,17 +271,20 @@ class BGPAgent(object):
             router_port_ip = router_port.mac[0].split(' ')[1]
         except IndexError:
             return
-        if router_port_ip.split('/')[0] in gateway_ips:
+        router_ip = router_port_ip.split('/')[0]
+        if router_ip in gateway_ips:
             return
-        self.ovn_local_lrps.append(router_port.logical_port)
+        self.ovn_local_lrps.add(router_port.logical_port)
         rule_bridge = self._get_bridge_for_datapath(
             gateway['provider_datapath'])
         self._add_ip_rule(router_port_ip, rule_bridge)
+        if router_ip in ovn_ip_rules.keys():
+            del ovn_ip_rules[router_ip]
 
         if utils.get_ip_version(router_port_ip) == constants.IP_VERSION_6:
             for gateway_ip in gateway_ips:
                 if utils.get_ip_version(gateway_ip) == constants.IP_VERSION_6:
-                    self._add_ip_route(router_port_ip.split("/")[0],
+                    self._add_ip_route(router_ip,
                                        rule_bridge,
                                        mask=router_port_ip.split("/")[1],
                                        via=gateway_ip)
@@ -289,7 +292,7 @@ class BGPAgent(object):
         else:
             for gateway_ip in gateway_ips:
                 if utils.get_ip_version(gateway_ip) == constants.IP_VERSION_4:
-                    self._add_ip_route(router_port_ip.split("/")[0],
+                    self._add_ip_route(router_ip,
                                        rule_bridge,
                                        mask=router_port_ip.split("/")[1],
                                        via=gateway_ip)
@@ -333,7 +336,8 @@ class BGPAgent(object):
         if router_port_ip.split('/')[0] in gateway_ips:
             return
 
-        self.ovn_local_lrps.remove(router_port.logical_port)
+        if router_port.logical_port in self.ovn_local_lrps:
+            self.ovn_local_lrps.remove(router_port.logical_port)
         rule_bridge = self._get_bridge_for_datapath(
             gateway['provider_datapath'])
         self._del_ip_rule(router_port_ip, rule_bridge)
@@ -739,7 +743,7 @@ class BGPAgent(object):
         if cr_lrp:
             print("Add IP Rules for network {} on chassis {}".format(
                 ip_address, self.chassis))
-            self.ovn_local_lrps.append(row.logical_port)
+            self.ovn_local_lrps.add(row.logical_port)
             cr_lrp_info = self.ovn_local_cr_lrps.get(cr_lrp, {})
             cr_lrp_datapath = cr_lrp_info.get('provider_datapath')
             if cr_lrp_datapath and self._use_rules:
