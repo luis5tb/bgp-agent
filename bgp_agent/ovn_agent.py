@@ -198,6 +198,7 @@ class BGPAgent(object):
 
         # add default route on that table if it does not exist
         ipdb = pyroute2.IPDB()
+        extra_routes = []
         try:
             table_route = ipdb.routes.tables[
                 self.ovn_routing_tables[bridge]]
@@ -216,8 +217,7 @@ class BGPAgent(object):
                             ).commit()
         else:
             route_missing = True
-            route6_missing = True
-            extra_routes = []
+            route6_missing = True    
             for route in table_route:
                 if (route['dst'] == 'default' and
                         ipdb.interfaces[route['oif']].ifname == bridge):
@@ -241,7 +241,7 @@ class BGPAgent(object):
                                 family=AF_INET6,
                                 proto=3
                                 ).commit()
-            return extra_routes
+        return extra_routes
 
     def _ensure_port_exposed(self, port, exposed_ips, ovn_ip_rules):
         if port.type not in constants.OVN_VIF_PORT_TYPES:
