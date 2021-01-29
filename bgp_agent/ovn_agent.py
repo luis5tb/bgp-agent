@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
 import re
 import sys
 import time
@@ -56,6 +57,8 @@ class BGPAgent(object):
         self.ovn_bridge_mappings = {}  # {'public': 'br-ex'}
         self.ovn_local_cr_lrps = {}
         self.ovn_local_lrps = set([])
+        # {'br-ex': [route1, route2]}
+        self.ovn_routing_tables_routes = collections.defaultdict()
 
         self.ovs_idl = ovs.OvsIdl().start(constants.OVS_CONNECTION_STRING)
         self._load_config()
@@ -212,32 +215,33 @@ class BGPAgent(object):
                             proto=3
                             ).commit()
         else:
-            rule_missing = True
-            rule6_missing = True
-            for rule in table_route:
-                if (rule['dst'] == 'default' and
-                        ipdb.interfaces[rule['oif']].ifname == bridge):
-                    if rule['family'] == AF_INET6:
-                        rule6_missing = False
+            route_missing = True
+            route6_missing = True
+            extra_routes = []
+            for route in table_route:
+                if (route['dst'] == 'default' and
+                        ipdb.interfaces[route['oif']].ifname == bridge):
+                    if route['family'] == AF_INET6:
+                        route6_missing = False
                     else:
-                        rule_missing = False
+                        route_missing = False
                 else:
-                    with rule as r:
-                        r.remove()
-            if rule_missing:
+                    extra_routes.append(route)
+            if route_missing:
                 ipdb.routes.add(dst='default',
                                 oif=ipdb.interfaces[bridge].index,
                                 table=self.ovn_routing_tables[bridge],
                                 scope=253,
                                 proto=3
                                 ).commit()
-            if rule6_missing:
+            if route6_missing:
                 ipdb.routes.add(dst='default',
                                 oif=ipdb.interfaces[bridge].index,
                                 table=self.ovn_routing_tables[bridge],
                                 family=AF_INET6,
                                 proto=3
                                 ).commit()
+            return extra_routes
 
     def _ensure_port_exposed(self, port, exposed_ips, ovn_ip_rules):
         if port.type not in constants.OVN_VIF_PORT_TYPES:
@@ -430,12 +434,14 @@ class BGPAgent(object):
         # 1) Get bridge mappings: xxxx:br-ex,yyyy:br-ex2
         bridge_mappings = self._get_ovn_bridge_mappings()
         # 2) Get macs for bridge mappings
+        extra_routes = {}
         for bridge_mapping in bridge_mappings:
             network = bridge_mapping.split(":")[0]
             bridge = bridge_mapping.split(":")[1]
             self.ovn_bridge_mappings[network] = bridge
             if self._use_rules:
-                self._ensure_routing_table_for_bridge(bridge)
+                extra_routes[bridge] = self._ensure_routing_table_for_bridge(
+                    bridge)
 
             with ipdb.interfaces[bridge] as iface:
                 flows_info[bridge] = {'mac': iface.address}
@@ -503,6 +509,27 @@ class BGPAgent(object):
         # remove all the leftovers on the list of current ip rules for ovn
         # bridges
         self._delete_ovn_ip_rules(ovn_ip_rules)
+        # remove all the extra rules not needed
+        for bridge, routes in self.ovn_routing_tables_routes.items():
+            oif=ipdb.interfaces[bridge].index
+            if not extra_routes[bridge]:
+                continue
+            for route in routes:
+                if 'gateway' in route.keys():  # subnet route
+                    possible_matchings = [r for r in extra_routes[bridge]
+                                        if (r['dst'] == route['dst'] and
+                                            r['oif'] == oif and
+                                            r['gateway'] == route['gateway'])]
+                else:  # cr-lrp
+                    possible_matchings = [r for r in extra_routes[bridge]
+                                        if (r['dst'] == route['dst'] and
+                                            r['oif'] == oif)]
+                for r in possible_matchings:
+                    extra_routes[bridge].remove(r)
+        for routes in extra_routes.values():
+            for route in routes:
+                with route as r:
+                    r.remove()
 
     def add_bgp_route(self, ips, row):
         '''Advertice BGP route by adding IP to device.
@@ -957,6 +984,8 @@ class BGPAgent(object):
         except KeyError:
             ipdb.routes.add(route).commit()
             print("Route created at table {}: {}".format(rule_table, route))
+        self.ovn_routing_tables_routes.setdefault(bridge, []).append(
+            route)
 
     def _del_ip_route(self, ip_address, bridge, mask=None, via=None):
         rule_table = self.ovn_routing_tables[bridge]
@@ -992,6 +1021,7 @@ class BGPAgent(object):
             with ipdb.routes.tables[rule_table][route] as r:
                 r.remove()
             print("Route deleted at table {}: {}".format(rule_table, route))
+            self.ovn_routing_tables_routes[bridge].remove(route)
         except KeyError:
             print("Route already deleted: {}".format(route))
 
