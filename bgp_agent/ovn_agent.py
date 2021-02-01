@@ -875,7 +875,8 @@ class BGPAgent(object):
                 self._delete_exposed_ips(vms_on_net)
 
     def _get_bridge_for_datapath(self, datapath):
-        network_name = self.sb_idl.get_network_name(datapath)
+        network_name = self.sb_idl.get_network_name(
+            datapath, self.ovn_bridge_mappings.keys())
         if network_name:
             return self.ovn_bridge_mappings[network_name]
 
