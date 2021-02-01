@@ -99,7 +99,8 @@ class FIPSetEvent(PortBindingChassisEvent):
     def match_fn(self, event, row, old):
         try:
             return (not row.chassis and
-                    row.nat_addresses != old.nat_addresses)
+                    row.nat_addresses != old.nat_addresses and
+                    not row.logical_port.startswith('lrp-'))
         except (AttributeError):
             return False
 
@@ -121,7 +122,8 @@ class FIPUnsetEvent(PortBindingChassisEvent):
     def match_fn(self, event, row, old):
         try:
             return (not row.chassis and
-                    row.nat_addresses != old.nat_addresses)
+                    row.nat_addresses != old.nat_addresses and
+                    not row.logical_port.startswith('lrp-'))
         except (AttributeError):
             return False
 
