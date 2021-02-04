@@ -97,7 +97,8 @@ class BGPAgent(object):
         self.sync()
 
         while True:
-            time.sleep(1)
+            time.sleep(300)
+            self.sync()
 
     def _load_config(self):
         self.chassis = self._get_own_chassis_name()
@@ -140,6 +141,15 @@ class BGPAgent(object):
         except Exception as e:
             print("Unable to execute {} {}. Exception: {}".format(
                 command, full_args, e))
+            raise
+
+    def _set_kernel_flag(self, flag, value):
+        command = ["sysctl", "-w", "{}={}".format(flag, value)]
+        try:
+            return processutils.execute(*command, run_as_root=True)
+        except Exception as e:
+            print("Unable to execute {}. Exception: {}".format(
+                command, e))
             raise
 
     def _ensure_vrf(self, vrf_name, vrf_table):
@@ -212,7 +222,7 @@ class BGPAgent(object):
                             ).commit()
         else:
             route_missing = True
-            route6_missing = True    
+            route6_missing = True
             for route in table_route:
                 if (route['dst'] == 'default' and
                         ipdb.interfaces[route['oif']].ifname == bridge):
@@ -237,6 +247,29 @@ class BGPAgent(object):
                                 proto=3
                                 ).commit()
         return extra_routes
+
+    def _ensure_vlan_device_for_network(self, bridge, network):
+        vlan_tag = self.sb_idl.get_network_vlan_tag_by_network_name(network)
+        if not vlan_tag:
+            return
+        vlan_tag = vlan_tag[0]
+        vlan_device_name = '{}.{}'.format(bridge, vlan_tag)
+        ipdb = pyroute2.IPDB()
+        try:
+            with ipdb.interfaces[vlan_device_name] as iface:
+                if iface.state != "up":
+                    iface.up()
+        except KeyError:
+            with ipdb.create(kind="vlan",
+                             ifname=vlan_device_name,
+                             vlan_id=vlan_tag,
+                             link=ipdb.interfaces[bridge].index) as iface:
+                iface.up()
+
+        ipv4_flag = "net.ipv4.conf.{}/{}.proxy_arp".format(bridge, vlan_tag)
+        self._set_kernel_flag(ipv4_flag, 1)
+        ipv6_flag = "net.ipv6.conf.{}/{}.proxy_ndp".format(bridge, vlan_tag)
+        self._set_kernel_flag(ipv6_flag, 1)
 
     def _ensure_port_exposed(self, port, exposed_ips, ovn_ip_rules):
         if port.type not in constants.OVN_VIF_PORT_TYPES:
@@ -274,7 +307,7 @@ class BGPAgent(object):
         if router_ip in gateway_ips:
             return
         self.ovn_local_lrps.add(router_port.logical_port)
-        rule_bridge = self._get_bridge_for_datapath(
+        rule_bridge, vlan_tag = self._get_bridge_for_datapath(
             gateway['provider_datapath'])
         self._add_ip_rule(router_port_ip, rule_bridge)
         if router_ip in ovn_ip_rules.keys():
@@ -285,6 +318,7 @@ class BGPAgent(object):
                 if utils.get_ip_version(gateway_ip) == constants.IP_VERSION_6:
                     self._add_ip_route(router_ip,
                                        rule_bridge,
+                                       vlan=vlan_tag,
                                        mask=router_port_ip.split("/")[1],
                                        via=gateway_ip)
                     break
@@ -293,6 +327,7 @@ class BGPAgent(object):
                 if utils.get_ip_version(gateway_ip) == constants.IP_VERSION_4:
                     self._add_ip_route(router_ip,
                                        rule_bridge,
+                                       vlan=vlan_tag,
                                        mask=router_port_ip.split("/")[1],
                                        via=gateway_ip)
                     break
@@ -337,7 +372,7 @@ class BGPAgent(object):
 
         if router_port.logical_port in self.ovn_local_lrps:
             self.ovn_local_lrps.remove(router_port.logical_port)
-        rule_bridge = self._get_bridge_for_datapath(
+        rule_bridge, vlan_tag = self._get_bridge_for_datapath(
             gateway['provider_datapath'])
         self._del_ip_rule(router_port_ip, rule_bridge)
 
@@ -346,6 +381,7 @@ class BGPAgent(object):
                 if utils.get_ip_version(gateway_ip) == constants.IP_VERSION_6:
                     self._del_ip_route(router_port_ip.split("/")[0],
                                        rule_bridge,
+                                       vlan=vlan_tag,
                                        mask=router_port_ip.split("/")[1],
                                        via=gateway_ip)
                     break
@@ -355,6 +391,7 @@ class BGPAgent(object):
                 if utils.get_ip_version(gateway_ip) == constants.IP_VERSION_4:
                     self._del_ip_route(router_port_ip.split("/")[0],
                                        rule_bridge,
+                                       vlan=vlan_tag,
                                        mask=router_port_ip.split("/")[1],
                                        via=gateway_ip)
                     break
@@ -433,43 +470,55 @@ class BGPAgent(object):
             network = bridge_mapping.split(":")[0]
             bridge = bridge_mapping.split(":")[1]
             self.ovn_bridge_mappings[network] = bridge
-            extra_routes[bridge] = self._ensure_routing_table_for_bridge(
-                bridge)
+            if not extra_routes.get(bridge):
+                extra_routes[bridge] = self._ensure_routing_table_for_bridge(
+                    bridge)
+            self._ensure_vlan_device_for_network(bridge, network)
 
+            if flows_info.get(bridge):
+                continue
             with ipdb.interfaces[bridge] as iface:
                 flows_info[bridge] = {'mac': iface.address}
+                flows_info[bridge]['in_port'] = set([])
             # 3) Get in_port for bridge mappings (br-ex, br-ex2)
-            ovs_port = self._ovs_cmd('ovs-vsctl',
-                                     ['list-ports', bridge])[0].rstrip()
-            if ovs_port:
+            ovs_ports = self._ovs_cmd(
+                'ovs-vsctl', ['list-ports', bridge])[0].rstrip()
+            if not ovs_ports:
+                flow = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
+                self._ovs_cmd('ovs-ofctl', ['del-flows', bridge, flow])
+                continue
+            for ovs_port in ovs_ports.split("\n"):
                 ovs_ofport = self._ovs_cmd(
                     'ovs-vsctl',
                     ['get', 'Interface', ovs_port, 'ofport'])[0].rstrip()
-                flows_info[bridge]['in_port'] = ovs_ofport
-            else:
-                flow = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
-                self._ovs_cmd('ovs-ofctl', ['del-flows', bridge, flow])
+                flows_info[bridge]['in_port'].add(ovs_ofport)
+
         # 4) Add flows for each bridge mappings
         for bridge, info in flows_info.items():
-            if info.get('in_port'):
+            for in_port in info.get('in_port'):
                 flow = ("cookie={},priority=1000,ip,in_port={},"
                         "actions=mod_dl_dst:{},NORMAL".format(
-                           constants.OVS_RULE_COOKIE, info['in_port'],
+                           constants.OVS_RULE_COOKIE, in_port,
                            info['mac']))
                 flow_v6 = ("cookie={},priority=1000,ipv6,in_port={},"
                            "actions=mod_dl_dst:{},NORMAL".format(
-                              constants.OVS_RULE_COOKIE, info['in_port'],
+                              constants.OVS_RULE_COOKIE, in_port,
                               info['mac']))
                 self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
                 self._ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow_v6])
 
                 cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
-                port = 'in_port={}'.format(info.get('in_port'))
                 current_flows = self._ovs_cmd(
                     'ovs-ofctl', ['dump-flows', bridge, cookie]
                     )[0].split('\n')[1:-1]
                 for flow in current_flows:
-                    if not flow or port in flow:
+                    agent_flow = False
+                    for port in info.get('in_port'):
+                        in_port = 'in_port={}'.format(port)
+                        if in_port in flow:
+                            agent_flow = True
+                            break
+                    if agent_flow:
                         continue
                     in_port = flow.split("in_port=")[1].split(" ")[0]
                     del_flow = ('{},in_port={}').format(cookie, in_port)
@@ -503,22 +552,30 @@ class BGPAgent(object):
         # bridges
         self._delete_ovn_ip_rules(ovn_ip_rules)
         # remove all the extra rules not needed
-        for bridge, routes in self.ovn_routing_tables_routes.items():
-            oif=ipdb.interfaces[bridge].index
+        for bridge, routes_info in self.ovn_routing_tables_routes.items():
             if not extra_routes[bridge]:
                 continue
-            for route in routes:
-                if 'gateway' in route.keys():  # subnet route
-                    possible_matchings = [r for r in extra_routes[bridge]
-                                        if (r['dst'] == route['dst'] and
-                                            r['oif'] == oif and
-                                            r['gateway'] == route['gateway'])]
+            for route_info in routes_info:
+                oif = ipdb.interfaces[bridge].index
+                if route_info['vlan']:
+                    vlan_device_name = '{}.{}'.format(bridge,
+                                                      route_info['vlan'])
+                    oif = ipdb.interfaces[vlan_device_name].index
+
+                if 'gateway' in route_info['route'].keys():  # subnet route
+                    possible_matchings = [
+                        r for r in extra_routes[bridge]
+                        if (r['dst'] == route_info['route']['dst'] and
+                            r['oif'] == oif and
+                            r['gateway'] == route_info['route']['gateway'])]
                 else:  # cr-lrp
-                    possible_matchings = [r for r in extra_routes[bridge]
-                                        if (r['dst'] == route['dst'] and
-                                            r['oif'] == oif)]
+                    possible_matchings = [
+                        r for r in extra_routes[bridge]
+                        if (r['dst'] == route_info['route']['dst'] and
+                            r['oif'] == oif)]
                 for r in possible_matchings:
                     extra_routes[bridge].remove(r)
+
         for routes in extra_routes.values():
             for route in routes:
                 with route as r:
@@ -549,9 +606,10 @@ class BGPAgent(object):
                     else:
                         iface.add_ip('%s/%s' % (ip, 32))
 
-            rule_bridge = self._get_bridge_for_datapath(row.datapath)
+            rule_bridge, vlan_tag = self._get_bridge_for_datapath(row.datapath)
             for ip in ips:
                 self._add_ip_rule(ip, rule_bridge)
+                self._add_ip_route(ip, rule_bridge, vlan=vlan_tag)
 
         # VM with FIP
         elif row.type == "":
@@ -564,8 +622,10 @@ class BGPAgent(object):
                 with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                     iface.add_ip('%s/%s' % (fip_address, 32))
 
-                rule_bridge = self._get_bridge_for_datapath(fip_datapath)
+                rule_bridge, vlan_tag = self._get_bridge_for_datapath(
+                    fip_datapath)
                 self._add_ip_rule(fip_address, rule_bridge)
+                self._add_ip_route(fip_address, rule_bridge, vlan=vlan_tag)
                 return fip_address
             else:
                 self._ensure_bridge_ovs_flows()
@@ -593,12 +653,13 @@ class BGPAgent(object):
                         else:
                             iface.add_ip('%s/%s' % (ip.split("/")[0], 32))
 
-                rule_bridge = self._get_bridge_for_datapath(
+                rule_bridge, vlan_tag = self._get_bridge_for_datapath(
                     cr_lrp_datapath)
                 for ip in ips:
                     self._add_ip_rule(ip.split("/")[0], rule_bridge,
-                                        lladdr=row.mac[0].split(' ')[0])
-                    self._add_ip_route(ip.split("/")[0], rule_bridge)
+                                      lladdr=row.mac[0].split(' ')[0])
+                    self._add_ip_route(ip.split("/")[0], rule_bridge,
+                                       vlan=vlan_tag)
 
                 # Check if there are networks attached to the router,
                 # and if so, add the needed routes/rules
@@ -636,9 +697,10 @@ class BGPAgent(object):
                     else:
                         iface.del_ip('%s/%s' % (ip, 32))
 
-            rule_bridge = self._get_bridge_for_datapath(row.datapath)
+            rule_bridge, vlan_tag = self._get_bridge_for_datapath(row.datapath)
             for ip in ips:
                 self._del_ip_rule(ip, rule_bridge)
+                self._del_ip_route(ip, rule_bridge, vlan=vlan_tag)
         # VM with FIP
         elif row.type == "":
             # FIPs are only supported with IPv4
@@ -651,8 +713,10 @@ class BGPAgent(object):
                 with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                     iface.del_ip('%s/%s' % (fip_address, 32))
 
-                rule_bridge = self._get_bridge_for_datapath(fip_datapath)
+                rule_bridge, vlan_tag = self._get_bridge_for_datapath(
+                    fip_datapath)
                 self._del_ip_rule(fip_address, rule_bridge)
+                self._del_ip_route(fip_address, rule_bridge, vlan=vlan_tag)
         # CR-LRP Port
         elif (row.type == "chassisredirect" and
               row.logical_port.startswith('cr-')):
@@ -670,7 +734,7 @@ class BGPAgent(object):
                         else:
                             iface.del_ip('%s/%s' % (ip.split("/")[0], 32))
 
-                rule_bridge = self._get_bridge_for_datapath(
+                rule_bridge, vlan_tag = self._get_bridge_for_datapath(
                     cr_lrp_datapath)
                 for ip in ips:
                     if utils.get_ip_version(ip) == constants.IP_VERSION_6:
@@ -678,9 +742,9 @@ class BGPAgent(object):
                     else:
                         cr_lrp_ip = '{}/32'.format(ip.split("/")[0])
                     self._del_ip_rule(cr_lrp_ip, rule_bridge,
-                                        lladdr=row.mac[0].split(' ')[0])
+                                      lladdr=row.mac[0].split(' ')[0])
                     self._del_ip_route(cr_lrp_ip.split("/")[0],
-                                        rule_bridge)
+                                       rule_bridge, vlan=vlan_tag)
 
                 # Check if there are networks attached to the router,
                 # and if so, delete the needed routes/rules
@@ -708,8 +772,9 @@ class BGPAgent(object):
             with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                 iface.add_ip('%s/%s' % (fip_address, 32))
 
-            rule_bridge = self._get_bridge_for_datapath(datapath)
+            rule_bridge, vlan_tag = self._get_bridge_for_datapath(datapath)
             self._add_ip_rule(fip_address, rule_bridge)
+            self._add_ip_route(fip_address, rule_bridge, vlan=vlan_tag)
 
     def delete_bgp_fip_route(self, nat, datapath):
         # example: "fa:16:3e:70:ad:b1 172.24.4.176
@@ -726,8 +791,9 @@ class BGPAgent(object):
             with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
                 iface.del_ip('%s/%s' % (fip_address, 32))
 
-            rule_bridge = self._get_bridge_for_datapath(datapath)
+            rule_bridge, vlan_tag = self._get_bridge_for_datapath(datapath)
             self._del_ip_rule(fip_address, rule_bridge)
+            self._del_ip_route(fip_address, rule_bridge, vlan=vlan_tag)
 
     def add_subnet_bgp_route(self, ips, datapath):
         if self.sb_idl.is_provider_network(datapath):
@@ -771,7 +837,7 @@ class BGPAgent(object):
             if cr_lrp_datapath:
                 cr_lrp_ips = [ip.split('/')[0]
                               for ip in cr_lrp_info.get('ips', [])]
-                rule_bridge = self._get_bridge_for_datapath(cr_lrp_datapath)
+                rule_bridge, vlan_tag = self._get_bridge_for_datapath(cr_lrp_datapath)
                 self._add_ip_rule(ip_address, rule_bridge)
 
                 if utils.get_ip_version(ip_address) == constants.IP_VERSION_6:
@@ -779,6 +845,7 @@ class BGPAgent(object):
                         if utils.get_ip_version(ip) == constants.IP_VERSION_6:
                             self._add_ip_route(ip_address.split("/")[0],
                                                rule_bridge,
+                                               vlan=vlan_tag,
                                                mask=ip_address.split("/")[1],
                                                via=ip)
                             break
@@ -787,6 +854,7 @@ class BGPAgent(object):
                         if utils.get_ip_version(ip) == constants.IP_VERSION_4:
                             self._add_ip_route(ip_address.split("/")[0],
                                                rule_bridge,
+                                               vlan=vlan_tag,
                                                mask=ip_address.split("/")[1],
                                                via=ip)
                             break
@@ -836,7 +904,7 @@ class BGPAgent(object):
             if cr_lrp_datapath:
                 cr_lrp_ips = [ip.split('/')[0]
                               for ip in cr_lrp_info.get('ips', [])]
-                rule_bridge = self._get_bridge_for_datapath(cr_lrp_datapath)
+                rule_bridge, vlan_tag = self._get_bridge_for_datapath(cr_lrp_datapath)
                 self._del_ip_rule(ip_address, rule_bridge)
 
                 if utils.get_ip_version(ip_address) == constants.IP_VERSION_6:
@@ -844,6 +912,7 @@ class BGPAgent(object):
                         if utils.get_ip_version(ip) == constants.IP_VERSION_6:
                             self._del_ip_route(ip_address.split("/")[0],
                                                rule_bridge,
+                                               vlan=vlan_tag,
                                                mask=ip_address.split("/")[1],
                                                via=ip)
                             break
@@ -853,6 +922,7 @@ class BGPAgent(object):
                         if utils.get_ip_version(ip) == constants.IP_VERSION_4:
                             self._del_ip_route(ip_address.split("/")[0],
                                                rule_bridge,
+                                               vlan=vlan_tag,
                                                mask=ip_address.split("/")[1],
                                                via=ip)
                             break
@@ -864,10 +934,12 @@ class BGPAgent(object):
                 self._delete_exposed_ips(vms_on_net)
 
     def _get_bridge_for_datapath(self, datapath):
-        network_name = self.sb_idl.get_network_name(
+        network_name, network_tag = self.sb_idl.get_network_name_and_tag(
             datapath, self.ovn_bridge_mappings.keys())
         if network_name:
-            return self.ovn_bridge_mappings[network_name]
+            if network_tag:
+                return self.ovn_bridge_mappings[network_name], network_tag[0]
+            return self.ovn_bridge_mappings[network_name], None
 
     def _add_ip_rule(self, ip, bridge, lladdr=None):
         ip_version = utils.get_ip_version(ip)
@@ -938,7 +1010,8 @@ class BGPAgent(object):
                               ifindex=network_bridge_if,
                               state=ndmsg.states['permanent'])
 
-    def _add_ip_route(self, ip_address, bridge, mask=None, via=None):
+    def _add_ip_route(self, ip_address, bridge, vlan=None, mask=None,
+                      via=None):
         rule_table = self.ovn_routing_tables[bridge]
         ipdb = pyroute2.IPDB()
         if not mask:  # default /32 or /128
@@ -962,7 +1035,11 @@ class BGPAgent(object):
                      'proto': 3, 'scope': 0}
         else:
             iproute = pyroute2.IPRoute()
-            oif = iproute.link_lookup(ifname=bridge)[0]
+            if vlan:
+                oif_name = '{}.{}'.format(bridge, vlan)
+                oif = iproute.link_lookup(ifname=oif_name)[0]
+            else:
+                oif = iproute.link_lookup(ifname=bridge)[0]
             route = {'dst': ip, 'oif': oif, 'table': rule_table, 'proto': 3,
                      'scope': 253}
         if utils.get_ip_version(ip) == constants.IP_VERSION_6:
@@ -974,10 +1051,12 @@ class BGPAgent(object):
         except KeyError:
             ipdb.routes.add(route).commit()
             print("Route created at table {}: {}".format(rule_table, route))
+        route_info = {'vlan': vlan, 'route': route}
         self.ovn_routing_tables_routes.setdefault(bridge, []).append(
-            route)
+            route_info)
 
-    def _del_ip_route(self, ip_address, bridge, mask=None, via=None):
+    def _del_ip_route(self, ip_address, bridge, vlan=None, mask=None,
+                      via=None):
         rule_table = self.ovn_routing_tables[bridge]
         ipdb = pyroute2.IPDB()
         if not mask:  # default /32 or /128
@@ -1001,7 +1080,11 @@ class BGPAgent(object):
                      'proto': 3, 'scope': 0}
         else:
             iproute = pyroute2.IPRoute()
-            oif = iproute.link_lookup(ifname=bridge)[0]
+            if vlan:
+                oif_name = '{}.{}'.format(bridge, vlan)
+                oif = iproute.link_lookup(ifname=oif_name)[0]
+            else:
+                oif = iproute.link_lookup(ifname=bridge)[0]
             route = {'dst': ip, 'oif': oif, 'table': rule_table, 'proto': 3,
                      'scope': 253}
         if utils.get_ip_version(ip) == constants.IP_VERSION_6:
@@ -1011,7 +1094,8 @@ class BGPAgent(object):
             with ipdb.routes.tables[rule_table][route] as r:
                 r.remove()
             print("Route deleted at table {}: {}".format(rule_table, route))
-            self.ovn_routing_tables_routes[bridge].remove(route)
+            route_info = {'vlan': vlan, 'route': route}
+            self.ovn_routing_tables_routes[bridge].remove(route_info)
         except KeyError:
             print("Route already deleted: {}".format(route))
 

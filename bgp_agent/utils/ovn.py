@@ -139,11 +139,19 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
         rows = self.db_list_rows('Port_Binding').execute(check_error=True)
         return [r for r in rows if r.chassis and r.chassis[0].name == chassis]
 
-    def get_network_name(self, datapath, bridge_mappings):
+    def get_network_name_and_tag(self, datapath, bridge_mappings):
         for row in self._get_ports_by_datapath(datapath, 'localnet'):
             if (row.options and
                     row.options.get('network_name') in bridge_mappings):
-                return row.options.get('network_name')
+                return row.options.get('network_name'), row.tag
+        return None
+
+    def get_network_vlan_tag_by_network_name(self, network_name):
+        cmd = self.db_find_rows('Port_Binding', ('type', '=', 'localnet'))
+        for row in cmd.execute(check_error=True):
+            if (row.options and
+                    row.options.get('network_name') == network_name):
+                return row.tag
         return None
 
     def is_router_gateway_on_chassis(self, datapath, chassis):
