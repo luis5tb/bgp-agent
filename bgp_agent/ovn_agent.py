@@ -809,8 +809,6 @@ class BGPAgent(object):
                         if len(port.mac[0].split(' ')) == 3:
                             port_ips.append(port.mac[0].split(' ')[2])
                         with ipdb.interfaces[constants.OVN_BGP_NIC] as iface:
-                            iface.add_ip('%s/%s' % (ip_address, 32))
-
                             ip_version = utils.get_ip_version(ip_address)
                             for port_ip in port_ips:
                                 # Only adding the port ips that match the lrp
