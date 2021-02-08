@@ -165,11 +165,6 @@ class BGPAgent(object):
                     vrf.up()
 
     def _ensure_ovn_device(self, ovn_ifname, vrf_name):
-        with pyroute2.IPRoute() as ip:
-            # Associate device to VRF
-            ovn_nic_index = ip.link_lookup(ifname=ovn_ifname)[0]
-            ovn_nic = ip.link("get", index=ovn_nic_index)[0]
-
         with pyroute2.IPDB() as ipdb:
             try:
                 with ipdb.interfaces[ovn_ifname] as iface:
@@ -179,6 +174,11 @@ class BGPAgent(object):
                 with ipdb.create(kind="dummy",
                                  ifname=ovn_ifname) as iface:
                     iface.up()
+
+            with pyroute2.IPRoute() as ip:
+                # Associate device to VRF
+                ovn_nic_index = ip.link_lookup(ifname=ovn_ifname)[0]
+                ovn_nic = ip.link("get", index=ovn_nic_index)[0]
 
             # Check if already associated to a vrf, and associate it if not
             if not ovn_nic.get_attr("IFLA_MASTER"):
