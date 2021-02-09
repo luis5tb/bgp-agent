@@ -580,10 +580,12 @@ class BGPAgent(object):
                     for r in possible_matchings:
                         extra_routes[bridge].remove(r)
 
-        for routes in extra_routes.values():
-            for route in routes:
-                with route as r:
-                    r.remove()
+            for bridge, routes in extra_routes.items():
+                routing_table = self.ovn_routing_tables[bridge]
+                for route in routes:
+                    with ipdb.routes.tables[routing_table][route] as r:
+                        r.remove()
+
 
     def add_bgp_route(self, ips, row):
         '''Advertice BGP route by adding IP to device.
