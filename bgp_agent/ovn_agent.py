@@ -97,7 +97,7 @@ class BGPAgent(object):
         self.sync()
 
         while True:
-            time.sleep(300)
+            time.sleep(120)
             self.sync()
 
     def _load_config(self):
@@ -458,6 +458,10 @@ class BGPAgent(object):
                 ip.rule('del', **rule)
 
     def sync(self):
+        self.ovn_local_cr_lrps = {}
+        self.ovn_local_lrps = set([])
+        self.ovn_routing_tables_routes = collections.defaultdict()
+
         print("Ensuring VRF configuration for advertising routes")
         # Create VRF
         self._ensure_vrf(constants.OVN_BGP_VRF, constants.OVN_BGP_VRF_TABLE)
