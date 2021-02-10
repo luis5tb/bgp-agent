@@ -129,7 +129,10 @@ class BGPAgent(object):
         """
         ext_ids = self.ovs_idl.db_get(
             'Open_vSwitch', '.', 'external_ids').execute()
-        return ext_ids['ovn-bridge-mappings'].split(",")
+        try:
+            return ext_ids['ovn-bridge-mappings'].split(",")
+        except KeyError:
+            return []
 
     def _ovs_cmd(self, command, args, timeout=None):
         full_args = [command]
