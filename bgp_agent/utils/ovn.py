@@ -44,6 +44,7 @@ class OvnSbIdl(OvnIdl):
     def __init__(self, connection_string, chassis=None, events=None,
                  tables=None):
         helper = self._get_ovsdb_helper(connection_string)
+        self._events = events
         if tables is None:
             tables = ('Chassis', 'Encap', 'Port_Binding', 'Datapath_Binding',
                       'SB_Global')
@@ -55,8 +56,6 @@ class OvnSbIdl(OvnIdl):
             table = ('Chassis_Private' if 'Chassis_Private' in tables
                      else 'Chassis')
             self.tables[table].condition = [['name', '==', chassis]]
-        if events:
-            self.notify_handler.watch_events(events)
 
     def _get_ovsdb_helper(self, connection_string):
         return idlutils.get_schema_helper(connection_string, self.SCHEMA)
@@ -64,7 +63,10 @@ class OvnSbIdl(OvnIdl):
     def start(self):
         conn = connection.Connection(
             self, timeout=180)
-        return OvsdbSbOvnIdl(conn)
+        ovsdbSbConn = OvsdbSbOvnIdl(conn)
+        if self._events:
+            self.notify_handler.watch_events(self._events)
+        return ovsdbSbConn
 
 
 class Backend(ovs_idl.Backend):
