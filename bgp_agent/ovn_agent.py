@@ -673,6 +673,9 @@ class BGPAgent(object):
                                       lladdr=row.mac[0].split(' ')[0])
                     self._add_ip_route(ip.split("/")[0], rule_bridge,
                                        vlan=vlan_tag)
+                    # add proxy ndp config for ipv6
+                    if utils.get_ip_version(ip) == constants.IP_VERSION_6:
+                        self._add_ndp_proxy(ip, rule_bridge)
 
                 # Check if there are networks attached to the router,
                 # and if so, add the needed routes/rules
@@ -758,6 +761,9 @@ class BGPAgent(object):
                                       lladdr=row.mac[0].split(' ')[0])
                     self._del_ip_route(cr_lrp_ip.split("/")[0],
                                        rule_bridge, vlan=vlan_tag)
+                    # del proxy ndp config for ipv6
+                    if utils.get_ip_version(ip) == constants.IP_VERSION_6:
+                        self._del_ndp_proxy(ip, rule_bridge)
 
                 # Check if there are networks attached to the router,
                 # and if so, delete the needed routes/rules
@@ -953,6 +959,33 @@ class BGPAgent(object):
             if network_tag:
                 return self.ovn_bridge_mappings[network_name], network_tag[0]
             return self.ovn_bridge_mappings[network_name], None
+
+    def _add_ndp_proxy(self, ip, bridge):
+        # FIXME(ltomasbo): This should use pyroute instead but I didn't find
+        # out how
+        net_ip = str(ipaddress.IPv6Network(ip, strict=False).network_address)
+        command = ["ip", "-6", "nei", "add", "proxy", net_ip, "dev", bridge]
+        try:
+            return processutils.execute(*command, run_as_root=True)
+        except Exception as e:
+            print("Unable to execute {}. Exception: {}".format(
+                command, e))
+            raise
+
+    def _del_ndp_proxy(self, ip, bridge):
+        # FIXME(ltomasbo): This should use pyroute instead but I didn't find
+        # out how
+        net_ip = str(ipaddress.IPv6Network(ip, strict=False).network_address)
+        command = ["ip", "-6", "nei", "del", "proxy", net_ip, "dev", bridge]
+        try:
+            return processutils.execute(*command, run_as_root=True)
+        except Exception as e:
+            if "No such file or directory" in e.stderr:
+                # Already deleted
+                return
+            print("Unable to execute {}. Exception: {}".format(
+                command, e))
+            raise
 
     def _add_ip_rule(self, ip, bridge, lladdr=None):
         ip_version = utils.get_ip_version(ip)
