@@ -46,19 +46,12 @@ by the agent by ensuring proper ARP handling by adding the next:
         $ sudo ip nei replace CR_LRP_PORT_IP lladdr CR_LRP_PORT_MAC dev br-ex nud permanent
 
 NOTE:
-
-- The use of ip rules can be deactivated (setting `use_rules = False`), with
-extra requirements from the configuration side, see subsection about
-configuration without ip rules.
-- Exposing VMs on tenant network is only supported if ip rules is used, i.e.,
-if `use_rules = True`.
-- The VMs on tenant networks are exposed through the ovn node where the 
+- The VMs on tenant networks are exposed through the ovn node where the
 gateway port is located (i.e., the cr-lrp port). That means the traffic
 will go to it first, and then through the geneve tunnel to the node where
 the VM is.
 - Exposing VMs on tenant networks can be deacticated (setting
 `expose_tenant_network = False`).
-
 
 
 ### Pre Requisites:
@@ -134,6 +127,8 @@ an IP to properly handle the traffic:
         sudo sysctl -w net.ipv4.conf.all.rp_filter=0
         sudo sysctl -w net.ipv4.conf.br-ex.proxy_arp=1
         sudo sysctl -w net.ipv4.ip_forward=1
+        sudo sysctl -w net.ipv6.conf.br-ex.proxy_ndp=1
+        sudo sysctl -w net.ipv6.conf.all.forwarding=1
         sudo ip r a 172.24.4.1 via 99.99.1.1 #(loopback device IP)
 
 - The routing table for each bridge mapping needs to be created with the
@@ -180,32 +175,3 @@ As a python script on the compute nodes:
     Add BGP route for CR-LRP Port 172.24.4.221
     ....
 
-
-### Configuration without IP Rules
-
-If the agent wants to be used without IP Rules, and therefore with the need of
-having FRR injecting BGP routes into the local tables, the next extra steps
-need to be done:
-- Set `use_rules = False` on the `main` method before running the bgp agent.
-
-- Configure FRR to also obtain routes by removing from the `frr.conf` config
-file the next:
-
-        !neighbor eth1 prefix-list in_32_prefixes in
-
-- Ensure the br-ex ovs bridge has an IP from the provider network. For
-instance, assuming the provider network CIDR is 172.24.4.0/24, then set
-something like:
-
-        sudo ip a a 172.24.4.66/24 dev br-ex
-
-## Current limitations
-- Only exposes IPv4 IPs.
-- Tenant networks VM IPs are exposed only if `use_rules` is enabled.
-
-
-## Future enhancements
-- Add support for IPv6.
-- Allow to configure some parameters instead of make them constants.
-- Add different modes, in case only certain nodes are allowed to run the
-agent, i.e., only certain nodes are connected to the BGP peers.

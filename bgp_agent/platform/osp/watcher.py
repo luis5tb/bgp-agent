@@ -55,7 +55,7 @@ class PortBindingChassisCreatedEvent(PortBindingChassisEvent):
             # for dual-stack
             if len(row.mac[0].split(' ')) == 3:
                 ips.append(row.mac[0].split(' ')[2])
-            self.agent.add_bgp_route(ips, row)
+            self.agent.expose_IP(ips, row)
 
 
 class PortBindingChassisDeletedEvent(PortBindingChassisEvent):
@@ -87,7 +87,7 @@ class PortBindingChassisDeletedEvent(PortBindingChassisEvent):
             # for dual-stack
             if len(row.mac[0].split(' ')) == 3:
                 ips.append(row.mac[0].split(' ')[2])
-            self.agent.delete_bgp_route(ips, row)
+            self.agent.withdraw_IP(ips, row)
 
 
 class FIPSetEvent(PortBindingChassisEvent):
@@ -110,7 +110,9 @@ class FIPSetEvent(PortBindingChassisEvent):
         with _SYNC_STATE_LOCK.read_lock():
             for nat in row.nat_addresses:
                 if nat not in old.nat_addresses:
-                    self.agent.add_bgp_fip_route(nat, row.datapath)
+                    ip = nat.split(" ")[1]
+                    port = nat.split(" ")[2].split("\"")[1]
+                    self.agent.expose_IP([ip], row, associated_port=port)
 
 
 class FIPUnsetEvent(PortBindingChassisEvent):
@@ -133,7 +135,9 @@ class FIPUnsetEvent(PortBindingChassisEvent):
         with _SYNC_STATE_LOCK.read_lock():
             for nat in old.nat_addresses:
                 if nat not in row.nat_addresses:
-                    self.agent.delete_bgp_fip_route(nat, row.datapath)
+                    ip = nat.split(" ")[1]
+                    port = nat.split(" ")[2].split("\"")[1]
+                    self.agent.withdraw_IP([ip], row, associated_port=port)
 
 
 class SubnetRouterAttachedEvent(PortBindingChassisEvent):
@@ -157,7 +161,7 @@ class SubnetRouterAttachedEvent(PortBindingChassisEvent):
             return
         with _SYNC_STATE_LOCK.read_lock():
             ip_address = row.mac[0].split(' ')[1]
-            self.agent.add_subnet_rules(ip_address, row)
+            self.agent.expose_subnet(ip_address, row)
 
 
 class SubnetRouterDetachedEvent(PortBindingChassisEvent):
@@ -181,7 +185,7 @@ class SubnetRouterDetachedEvent(PortBindingChassisEvent):
             return
         with _SYNC_STATE_LOCK.read_lock():
             ip_address = row.mac[0].split(' ')[1]
-            self.agent.del_subnet_rules(ip_address, row)
+            self.agent.withdraw_subnet(ip_address, row)
 
 
 class TenantPortCreatedEvent(PortBindingChassisEvent):
@@ -209,7 +213,7 @@ class TenantPortCreatedEvent(PortBindingChassisEvent):
             # for dual-stack
             if len(row.mac[0].split(' ')) == 3:
                 ips.append(row.mac[0].split(' ')[2])
-            self.agent.add_subnet_bgp_route(ips, row.datapath)
+            self.agent.expose_remote_IP(ips, row)
 
 
 class TenantPortDeletedEvent(PortBindingChassisEvent):
@@ -236,7 +240,7 @@ class TenantPortDeletedEvent(PortBindingChassisEvent):
             # for dual-stack
             if len(row.mac[0].split(' ')) == 3:
                 ips.append(row.mac[0].split(' ')[2])
-            self.agent.del_subnet_bgp_route(ips, row.datapath)
+            self.agent.withdraw_remote_IP(ips, row)
 
 
 class ChassisCreateEventBase(row_event.RowEvent):
