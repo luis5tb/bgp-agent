@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from bgp_agent import ovn_agent
+from bgp_agent import agent
 
-start = ovn_agent.start
+start = agent.start
 
 if __name__ == '__main__':
     start()
