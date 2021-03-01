@@ -374,16 +374,18 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                 rule_bridge, vlan_tag = self._get_bridge_for_datapath(
                     cr_lrp_datapath)
 
-                for ip in ips_without_mask:
+                for ip in ips:
+                    ip_without_mask = ip.split("/")[0]
                     linux_net.add_ip_rule(
-                        ip, self.ovn_routing_tables[rule_bridge],
+                        ip_without_mask, self.ovn_routing_tables[rule_bridge],
                         rule_bridge, lladdr=row.mac[0].split(' ')[0])
                     linux_net.add_ip_route(
-                        self.ovn_routing_tables_routes, ip,
+                        self.ovn_routing_tables_routes, ip_without_mask,
                         self.ovn_routing_tables[rule_bridge], rule_bridge,
                         vlan=vlan_tag)
                     # add proxy ndp config for ipv6
-                    if utils.get_ip_version(ip) == constants.IP_VERSION_6:
+                    if (utils.get_ip_version(ip_without_mask) ==
+                            constants.IP_VERSION_6):
                         linux_net.add_ndp_proxy(ip, rule_bridge)
 
                 # Check if there are networks attached to the router,
