@@ -55,7 +55,7 @@ class PortBindingChassisCreatedEvent(PortBindingChassisEvent):
             # for dual-stack
             if len(row.mac[0].split(' ')) == 3:
                 ips.append(row.mac[0].split(' ')[2])
-            self.agent.expose_IP(ips, row)
+            self.agent.expose_IP(ips, row, caller="PortBinding")
 
 
 class PortBindingChassisDeletedEvent(PortBindingChassisEvent):
@@ -87,7 +87,7 @@ class PortBindingChassisDeletedEvent(PortBindingChassisEvent):
             # for dual-stack
             if len(row.mac[0].split(' ')) == 3:
                 ips.append(row.mac[0].split(' ')[2])
-            self.agent.withdraw_IP(ips, row)
+            self.agent.withdraw_IP(ips, row, caller="PortBinding")
 
 
 class FIPSetEvent(PortBindingChassisEvent):
@@ -112,7 +112,7 @@ class FIPSetEvent(PortBindingChassisEvent):
                 if nat not in old.nat_addresses:
                     ip = nat.split(" ")[1]
                     port = nat.split(" ")[2].split("\"")[1]
-                    self.agent.expose_IP([ip], row, associated_port=port)
+                    self.agent.expose_IP([ip], row, associated_port=port, caller="FIP EVENT")
 
 
 class FIPUnsetEvent(PortBindingChassisEvent):
@@ -137,7 +137,7 @@ class FIPUnsetEvent(PortBindingChassisEvent):
                 if nat not in row.nat_addresses:
                     ip = nat.split(" ")[1]
                     port = nat.split(" ")[2].split("\"")[1]
-                    self.agent.withdraw_IP([ip], row, associated_port=port)
+                    self.agent.withdraw_IP([ip], row, associated_port=port, caller="FIP EVENT")
 
 
 class SubnetRouterAttachedEvent(PortBindingChassisEvent):

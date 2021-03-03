@@ -285,7 +285,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
             return self.ovn_bridge_mappings[network_name], None
 
     @lockutils.synchronized('bgp')
-    def expose_IP(self, ips, row, associated_port=None):
+    def expose_IP(self, ips, row, associated_port=None, caller=None):
         '''Advertice BGP route by adding IP to device.
 
         This methods ensures BGP advertises the IP of the VM in the provider
@@ -300,9 +300,12 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         - VM FIP, or
         - CR-LRP OVN port
         '''
+        LOG.info("XXXXX EXPOSE IP EVENT FOR ROW: {}".format(ips))
+        LOG.info("XXXXX EXPOSE IP EVENT CALLED BY: {}".format(caller))
         self._expose_IP(ips, row, associated_port)
 
     def _expose_IP(self, ips, row, associated_port=None):
+        LOG.info("YYYYYY INTERNAL EXPOSE IP EVENT CALLED")
         # VM on provider Network
         if row.type == "" and self.sb_idl.is_provider_network(row.datapath):
             LOG.info("Add BGP route for logical port with ip {}".format(ips))
@@ -405,7 +408,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                         lrp, self.ovn_local_cr_lrps[row.logical_port])
 
     @lockutils.synchronized('bgp')
-    def withdraw_IP(self, ips, row, associated_port=None):
+    def withdraw_IP(self, ips, row, associated_port=None, caller=None):
         '''Withdraw BGP route by removing IP from device.
 
         This methods ensures BGP withdraw an advertised IP of a VM, either
@@ -421,6 +424,9 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         - VM FIP, or
         - CR-LRP OVN port
         '''
+        LOG.info("XXXXX WITHDRAW IP EVENT FOR ROW: {}".format(ips))
+        LOG.info("XXXXX WITHDRAW IP EVENT CALLED BY: {}".format(caller))
+
         # VM on provider Network
         if row.type == "" and self.sb_idl.is_provider_network(row.datapath):
             LOG.info("Delete BGP route for logical port with ip {}".format(ips))
