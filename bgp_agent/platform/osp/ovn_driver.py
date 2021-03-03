@@ -16,6 +16,7 @@ import collections
 import ipaddress
 import pyroute2
 
+from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_log import log as logging
 
@@ -68,6 +69,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         # calls the relevant driver methods upon registered events
         self.sb_idl = self._sb_idl.start()
 
+    @lockutils.synchronized('bgp')
     def sync(self):
         self.ovn_local_cr_lrps = {}
         self.ovn_local_lrps = set([])
@@ -156,7 +158,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         if len(port.mac[0].split(' ')) == 3:
             port_ips.append(port.mac[0].split(' ')[2])
 
-        fip = self.expose_IP(port_ips, port)
+        fip = self._expose_IP(port_ips, port)
         if fip:
             if fip in exposed_ips:
                 exposed_ips.remove(fip)
@@ -282,6 +284,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                 return self.ovn_bridge_mappings[network_name], network_tag[0]
             return self.ovn_bridge_mappings[network_name], None
 
+    @lockutils.synchronized('bgp')
     def expose_IP(self, ips, row, associated_port=None):
         '''Advertice BGP route by adding IP to device.
 
@@ -297,6 +300,9 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         - VM FIP, or
         - CR-LRP OVN port
         '''
+        self._expose_IP(ips, row, associated_port)
+
+    def _expose_IP(self, ips, row, associated_port=None):
         # VM on provider Network
         if row.type == "" and self.sb_idl.is_provider_network(row.datapath):
             LOG.info("Add BGP route for logical port with ip {}".format(ips))
@@ -398,6 +404,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                     self._ensure_network_exposed(
                         lrp, self.ovn_local_cr_lrps[row.logical_port])
 
+    @lockutils.synchronized('bgp')
     def withdraw_IP(self, ips, row, associated_port=None):
         '''Withdraw BGP route by removing IP from device.
 
@@ -517,6 +524,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                 except KeyError:
                     LOG.debug("Gateway port already cleanup from the agent")
 
+    @lockutils.synchronized('bgp')
     def expose_remote_IP(self, ips, row):
         if self.sb_idl.is_provider_network(row.datapath):
             return
@@ -526,6 +534,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                      ips, self.chassis))
             linux_net.add_ips_to_dev(constants.OVN_BGP_NIC, ips)
 
+    @lockutils.synchronized('bgp')
     def withdraw_remote_IP(self, ips, row):
         if self.sb_idl.is_provider_network(row.datapath):
             return
@@ -535,6 +544,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                      ips, self.chassis))
             linux_net.del_ips_from_dev(constants.OVN_BGP_NIC, ips)
 
+    @lockutils.synchronized('bgp')
     def expose_subnet(self, ip, row):
         cr_lrp = self.sb_idl.is_router_gateway_on_chassis(row.datapath,
                                                           self.chassis)
@@ -592,6 +602,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                                 linux_net.add_ips_to_dev(
                                     constants.OVN_BGP_NIC, [port_ip])
 
+    @lockutils.synchronized('bgp')
     def withdraw_subnet(self, ip, row):
         cr_lrp = self.sb_idl.is_router_gateway_on_chassis(row.datapath,
                                                           self.chassis)
