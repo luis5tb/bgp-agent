@@ -508,9 +508,14 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                 for lrp in lrp_ports:
                     if lrp.chassis:
                         continue
-                    self._remove_network_exposed(
-                        lrp, self.ovn_local_cr_lrps[row.logical_port])
-                del self.ovn_local_cr_lrps[row.logical_port]
+                    local_cr_lrp_info = self.ovn_local_cr_lrps.get(
+                        row.logical_port)
+                    if local_cr_lrp_info:
+                        self._remove_network_exposed(lrp, local_cr_lrp_info)
+                try:
+                    del self.ovn_local_cr_lrps[row.logical_port]
+                except KeyError:
+                    LOG.debug("Gateway port already cleanup from the agent")
 
     def expose_remote_IP(self, ips, row):
         if self.sb_idl.is_provider_network(row.datapath):

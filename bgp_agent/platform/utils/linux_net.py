@@ -247,8 +247,11 @@ def delete_bridge_ip_routes(routing_tables, routing_tables_routes,
         for bridge, routes in extra_routes.items():
             routing_table = routing_tables[bridge]
             for route in routes:
-                with ipdb.routes.tables[routing_table][route] as r:
-                    r.remove()
+                try:
+                    with ipdb.routes.tables[routing_table][route] as r:
+                        r.remove()
+                except KeyError:
+                    LOG.debug("Route already deleted: {}".format(route))
 
 
 def add_ndp_proxy(ip, dev):
