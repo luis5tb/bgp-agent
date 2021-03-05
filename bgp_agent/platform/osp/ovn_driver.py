@@ -35,6 +35,7 @@ LOG = logging.getLogger(__name__)
 # LOG.setLevel(logging.DEBUG)
 # logging.basicConfig(level=logging.DEBUG)
 
+
 class OSPOVNDriver(driver_api.AgentDriverBase):
 
     def __init__(self):
@@ -78,7 +79,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         LOG.debug("Ensuring VRF configuration for advertising routes")
         # Create VRF
         linux_net.ensure_vrf(constants.OVN_BGP_VRF,
-                             constants.OVN_BGP_VRF_TABLE)                      
+                             constants.OVN_BGP_VRF_TABLE)
         # Create OVN dummy device
         linux_net.ensure_ovn_device(constants.OVN_BGP_NIC,
                                     constants.OVN_BGP_VRF)
@@ -102,12 +103,12 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                 network)
             if vlan_tag:
                 linux_net.ensure_vlan_device_for_network(bridge,
-                                                            vlan_tag)
+                                                         vlan_tag)
 
             if flows_info.get(bridge):
                 continue
-            with pyroute2.IPDB().interfaces[bridge] as iface:
-                flows_info[bridge] = {'mac': iface.address}
+            with pyroute2.NDB().interfaces[bridge] as iface:
+                flows_info[bridge] = {'mac': iface['address']}
                 flows_info[bridge]['in_port'] = set([])
             # 3) Get in_port for bridge mappings (br-ex, br-ex2)
             ovs.get_ovs_flows(bridge, flows_info)
@@ -162,16 +163,22 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         if fip:
             if fip in exposed_ips:
                 exposed_ips.remove(fip)
-            if fip in ovn_ip_rules.keys():
-                del ovn_ip_rules[fip]
+            fip_dst = "{}/32".format(fip)
+            if fip_dst in ovn_ip_rules.keys():
+                del ovn_ip_rules[fip_dst]
 
         for port_ip in port_ips:
             ip_address = port_ip.split("/")[0]
+            ip_version = utils.get_ip_version(port_ip)
+            if ip_version == constants.IP_VERSION_6:
+                ip_dst = "{}/128".format(ip_address)
+            else:
+                ip_dst = "{}/32".format(ip_address)
             if ip_address in exposed_ips:
                 # remove each ip to add from the list of current ips on dev OVN
                 exposed_ips.remove(ip_address)
-            if ip_address in ovn_ip_rules.keys():
-                del ovn_ip_rules[ip_address]
+            if ip_dst in ovn_ip_rules.keys():
+                del ovn_ip_rules[ip_dst]
 
     def _ensure_network_exposed(self, router_port, gateway, exposed_ips=[],
                                 ovn_ip_rules={}):
@@ -190,8 +197,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         linux_net.add_ip_rule(router_port_ip,
                               self.ovn_routing_tables[rule_bridge],
                               rule_bridge)
-        if router_ip in ovn_ip_rules.keys():
-            del ovn_ip_rules[router_ip]
+        if router_port_ip in ovn_ip_rules.keys():
+            del ovn_ip_rules[router_port_ip]
 
         router_port_ip_version = utils.get_ip_version(router_port_ip)
         for gateway_ip in gateway_ips:
@@ -231,11 +238,15 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                             constants.OVN_BGP_NIC, [port_ip])
                         if port_ip in exposed_ips:
                             exposed_ips.remove(port_ip)
-                        if port_ip in ovn_ip_rules.keys():
-                            del ovn_ip_rules[port_ip]
+                        if ip_version == constants.IP_VERSION_6:
+                            ip_dst = "{}/128".format(port_ip)
+                        else:
+                            ip_dst = "{}/32".format(port_ip)
 
-    def _remove_network_exposed(self, router_port, gateway, exposed_ips=[],
-                                ovn_ip_rules={}):
+                        if ip_dst in ovn_ip_rules.keys():
+                            del ovn_ip_rules[ip_dst]
+
+    def _remove_network_exposed(self, router_port, gateway):
         gateway_ips = [ip.split('/')[0] for ip in gateway['ips']]
         try:
             router_port_ip = router_port.mac[0].split(' ')[1]
@@ -252,7 +263,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
         linux_net.del_ip_rule(router_port_ip,
                               self.ovn_routing_tables[rule_bridge],
-                              rule_bridge)            
+                              rule_bridge)
 
         router_port_ip_version = utils.get_ip_version(router_port_ip)
         for gateway_ip in gateway_ips:
@@ -268,7 +279,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                 if utils.get_ip_version(gateway_ip) == constants.IP_VERSION_6:
                     net = ipaddress.IPv6Network(router_port_ip, strict=False)
                 else:
-                    net = ipaddress.IPv4Network(router_port_ip, strict=False)    
+                    net = ipaddress.IPv4Network(router_port_ip, strict=False)
                 break
         # Check if there are VMs on the network
         # and if so withdraw the routes
@@ -341,7 +352,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                 return fip_address
             else:
                 ovs.ensure_bridge_ovs_flows(self.ovn_bridge_mappings.values())
-        
+
         # FIP association to VM
         elif row.type == "patch":
             if (associated_port and self.sb_idl.is_port_on_chassis(
@@ -358,7 +369,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                     linux_net.add_ip_route(
                         self.ovn_routing_tables_routes, ip,
                         self.ovn_routing_tables[rule_bridge], rule_bridge,
-                        vlan=vlan_tag)                
+                        vlan=vlan_tag)
 
         # CR-LRP Port
         elif (row.type == "chassisredirect" and
@@ -475,7 +486,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                     linux_net.del_ip_route(
                         self.ovn_routing_tables_routes, ip,
                         self.ovn_routing_tables[rule_bridge], rule_bridge,
-                        vlan=vlan_tag) 
+                        vlan=vlan_tag)
 
         # CR-LRP Port
         elif (row.type == "chassisredirect" and
@@ -622,7 +633,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                     cr_lrp_datapath)
                 linux_net.del_ip_rule(ip,
                                       self.ovn_routing_tables[rule_bridge],
-                                      rule_bridge)    
+                                      rule_bridge)
 
                 ip_version = utils.get_ip_version(ip)
                 for cr_lrp_ip in cr_lrp_ips:

@@ -18,6 +18,7 @@ import re
 import sys
 
 from pyroute2.netlink.rtnl import ndmsg
+from socket import AF_INET
 from socket import AF_INET6
 
 from oslo_concurrency import processutils
@@ -30,38 +31,31 @@ LOG = logging.getLogger(__name__)
 
 
 def ensure_vrf(vrf_name, vrf_table):
-    with pyroute2.IPDB() as ipdb:
+    with pyroute2.NDB() as ndb:
         try:
-            with ipdb.interfaces[vrf_name] as vrf:
-                if vrf.state != "up":
-                    vrf.up()
+            with ndb.interfaces[vrf_name] as vrf:
+                if vrf['state'] != "up":
+                    vrf['state'] = 'up'
         except KeyError:
-            with ipdb.create(kind="vrf",
-                                ifname=vrf_name,
-                                vrf_table=vrf_table) as vrf:
-                vrf.up()
+            ndb.interfaces.create(
+                kind="vrf", ifname=vrf_name, vrf_table=vrf_table).set(
+                    'state', 'up').commit()
 
 
 def ensure_ovn_device(ovn_ifname, vrf_name):
-    with pyroute2.IPDB() as ipdb:
+    with pyroute2.NDB() as ndb:
         try:
-            with ipdb.interfaces[ovn_ifname] as iface:
-                if iface.state != "up":
-                    iface.up()
+            with ndb.interfaces[ovn_ifname] as iface:
+                if iface['state'] != "up":
+                    iface['state'] = 'up'
         except KeyError:
-            with ipdb.create(kind="dummy",
-                             ifname=ovn_ifname) as iface:
-                iface.up()
-
-        with pyroute2.IPRoute() as ip:
-            # Associate device to VRF
-            ovn_nic_index = ip.link_lookup(ifname=ovn_ifname)[0]
-            ovn_nic = ip.link("get", index=ovn_nic_index)[0]
+            ndb.interfaces.create(
+                kind="dummy", ifname=ovn_ifname).set('state', 'up').commit()
 
         # Check if already associated to a vrf, and associate it if not
-        if not ovn_nic.get_attr("IFLA_MASTER"):
-            with ipdb.interfaces[vrf_name] as vrf:
-                vrf.add_port(ovn_nic_index)
+        if not ndb.interfaces[ovn_ifname].get('master'):
+            with ndb.interfaces[ovn_ifname] as iface:
+                iface.set('master', ndb.interfaces[vrf_name]['index'])
 
 
 def ensure_routing_table_for_bridge(ovn_routing_tables, bridge):
@@ -84,49 +78,68 @@ def ensure_routing_table_for_bridge(ovn_routing_tables, bridge):
 
     # add default route on that table if it does not exist
     extra_routes = []
-    with pyroute2.IPDB() as ipdb:
-        try:
-            table_route = ipdb.routes.tables[
-                ovn_routing_tables[bridge]]
-        except KeyError:  # if there is no rules, ipdb returns KeyError
-            ipdb.routes.add(dst='default',
-                            oif=ipdb.interfaces[bridge].index,
-                            table=ovn_routing_tables[bridge],
-                            scope=253,
-                            proto=3
-                            ).commit()
-            ipdb.routes.add(dst='default',
-                            oif=ipdb.interfaces[bridge].index,
-                            table=ovn_routing_tables[bridge],
-                            family=AF_INET6,
-                            proto=3
-                            ).commit()
+
+    with pyroute2.NDB() as ndb:
+        table_route_dsts = set([r.dst for r in ndb.routes.summary()
+                                if r.table == ovn_routing_tables[bridge]])
+        if not table_route_dsts:
+            ndb.routes.create(dst='default',
+                              oif=ndb.interfaces[bridge]['index'],
+                              table=ovn_routing_tables[bridge],
+                              scope=253,
+                              proto=3).commit()
+            ndb.routes.create(dst='default',
+                              oif=ndb.interfaces[bridge]['index'],
+                              table=ovn_routing_tables[bridge],
+                              family=AF_INET6,
+                              proto=3).commit()
         else:
             route_missing = True
             route6_missing = True
-            for route in table_route:
-                if (route['dst'] == 'default' and
-                        ipdb.interfaces[route['oif']].ifname == bridge):
-                    if route['family'] == AF_INET6:
-                        route6_missing = False
-                    else:
-                        route_missing = False
+            for dst in table_route_dsts:
+                if not dst:  # default route
+                    try:
+                        route =  ndb.routes[
+                            {'table': ovn_routing_tables[bridge],
+                             'dst': '',
+                             'family': AF_INET}]
+                        if (ndb.interfaces[{'index': route['oif']}]['ifname']
+                                == bridge):
+                            route_missing = False
+                        else:
+                            extra_routes.append(route)
+                    except KeyError:
+                        pass  # no ipv4 default rule
+                    try:
+                        route_6 =  ndb.routes[
+                            {'table': ovn_routing_tables[bridge],
+                             'dst': '',
+                             'family': AF_INET6}]
+                        if (ndb.interfaces[{'index': route_6['oif']}]['ifname']
+                                == bridge):
+                            route6_missing = False
+                        else:
+                            extra_routes.append(route_6)
+                    except KeyError:
+                        pass  # no ipv6 default rule
                 else:
-                    extra_routes.append(route)
+                    extra_routes.append(
+                        ndb.routes[{'table': ovn_routing_tables[bridge],
+                                    'dst': dst}]
+                    )
+
             if route_missing:
-                ipdb.routes.add(dst='default',
-                                oif=ipdb.interfaces[bridge].index,
-                                table=ovn_routing_tables[bridge],
-                                scope=253,
-                                proto=3
-                                ).commit()
+                ndb.routes.create(dst='default',
+                                  oif=ndb.interfaces[bridge]['index'],
+                                  table=ovn_routing_tables[bridge],
+                                  scope=253,
+                                  proto=3).commit()
             if route6_missing:
-                ipdb.routes.add(dst='default',
-                                oif=ipdb.interfaces[bridge].index,
-                                table=ovn_routing_tables[bridge],
-                                family=AF_INET6,
-                                proto=3
-                                ).commit()
+                ndb.routes.create(dst='default',
+                                  oif=ndb.interfaces[bridge]['index'],
+                                  table=ovn_routing_tables[bridge],
+                                  family=AF_INET6,
+                                  proto=3).commit()
     return extra_routes
 
 
@@ -134,17 +147,15 @@ def ensure_vlan_device_for_network(bridge, vlan_tag):
     vlan_tag = vlan_tag[0]
     vlan_device_name = '{}.{}'.format(bridge, vlan_tag)
 
-    with pyroute2.IPDB() as ipdb:
+    with pyroute2.NDB() as ndb:
         try:
-            with ipdb.interfaces[vlan_device_name] as iface:
-                if iface.state != "up":
-                    iface.up()
+            with ndb.interfaces[vlan_device_name] as iface:
+                if iface['state'] != "up":
+                    iface['state'] = 'up'
         except KeyError:
-            with ipdb.create(kind="vlan",
-                             ifname=vlan_device_name,
-                             vlan_id=vlan_tag,
-                             link=ipdb.interfaces[bridge].index) as iface:
-                iface.up()
+            ndb.interfaces.create(kind="vlan", ifname=vlan_device_name,
+                vlan_id=vlan_tag, link=ndb.interfaces[bridge]['index']).set(
+                    'state', 'up').commit()
 
     ipv4_flag = "net.ipv4.conf.{}/{}.proxy_arp".format(bridge, vlan_tag)
     _set_kernel_flag(ipv4_flag, 1)
@@ -164,91 +175,102 @@ def _set_kernel_flag(flag, value):
 
 def get_exposed_ips(nic):
     exposed_ips = []
-    with pyroute2.IPDB() as ipdb:
-        with ipdb.interfaces[nic] as iface:
-            exposed_ips = [ip[0] for ip in iface.ipaddr
-                        if ip[1] == 32 or ip[1] == 128]
+    with pyroute2.NDB() as ndb:
+        exposed_ips = [ip.address
+                       for ip in ndb.interfaces[nic].ipaddr.summary()
+                       if ip.prefixlen == 32 or ip.prefixlen == 128]
     return exposed_ips
 
 
 def get_exposed_ips_on_network(nic, network):
     exposed_ips = []
-    with pyroute2.IPDB() as ipdb:
-        with ipdb.interfaces[nic] as iface:
-            exposed_ips = [ip[0] for ip in iface.ipaddr
-                           if ((ip[1] == 32 or ip[1] == 128) and
-                               ipaddress.ip_address(ip[0]) in network)]
+    with pyroute2.NDB() as ndb:
+        exposed_ips = [ip.address
+                       for ip in ndb.interfaces[nic].ipaddr.summary()
+                       if (ip.prefixlen == 32 or ip.prefixlen == 128 and
+                           ipaddress.ip_address(ip.address) in network)]
     return exposed_ips
 
 
 def get_ovn_ip_rules(routing_table):
     # get the rules pointing to ovn bridges
     ovn_ip_rules = {}
-    with pyroute2.IPRoute() as ip:
-        for table in routing_table:
-            for rule in ip.get_rules(table=table):
-                dst = rule.get_attrs('FRA_DST')[0]
-                mask = rule['dst_len']
-                ovn_ip_rules[dst] = {'table': table, 'mask': mask}
-            for rule in ip.get_rules(table=table, family=AF_INET6):
-                dst = rule.get_attrs('FRA_DST')[0]
-                mask = rule['dst_len']
-                ovn_ip_rules[dst] = {'table': table, 'mask': mask}
+    with pyroute2.NDB() as ndb:
+        rules_info = [(rule.table, "{}/{}".format(rule.dst, rule.dst_len), rule.family) for rule in ndb.rules.dump()
+                      if rule.table in routing_table]
+        for table, dst, family in rules_info:
+            ovn_ip_rules[dst] = {'table': table, 'family': family}
     return ovn_ip_rules
 
 
 def delete_exposed_ips(ips, nic):
-    with pyroute2.IPDB() as ipdb:
-        with ipdb.interfaces[nic] as iface:
-            for ip in ips:
-                if utils.get_ip_version(ip) == constants.IP_VERSION_6:
-                    iface.del_ip(ip, 128)
-                else:
-                    iface.del_ip(ip, 32)
+    with pyroute2.NDB() as ndb:
+        for ip in ips:
+            address = '{}/32'.format(ip)
+            if utils.get_ip_version(ip) == constants.IP_VERSION_6:
+                address = '{}/128'.format(ip)
+            try:
+                ndb.interfaces[nic].ipaddr[address].remove().commit()
+            except KeyError:
+                LOG.debug("IP address {} already removed from nic {}.".format(
+                    ip, nic))
 
 
 def delete_ip_rules(ip_rules):
-    with pyroute2.IPRoute() as ip:
+    with pyroute2.NDB() as ndb:
         for rule_ip, rule_info in ip_rules.items():
-            rule = {'dst': '{}/{}'.format(rule_ip, rule_info['mask']),
-                    'table': rule_info['table']}
-            if utils.get_ip_version(rule_ip) == constants.IP_VERSION_6:
-                rule['family'] = AF_INET6
-            ip.rule('del', **rule)
+            rule = {'dst': rule_ip.split("/")[0],
+                    'dst_len': rule_ip.split("/")[1],
+                    'table': rule_info['table'],
+                    'family': rule_info['family']}
+            try:
+                with ndb.rules[rule] as r:
+                    r.remove()
+            except KeyError:
+                LOG.debug("Rule {} already deleted".format(rule))
+            except pyroute2.netlink.exceptions.NetlinkError:
+                # FIXME: There is a issue with NDB and ip rules deletion:
+                # https://github.com/svinota/pyroute2/issues/771
+                LOG.debug("This should not happen, skipping")
 
 
 def delete_bridge_ip_routes(routing_tables, routing_tables_routes,
                             extra_routes): 
-    with pyroute2.IPDB() as ipdb:
+    with pyroute2.NDB() as ndb:
         for bridge, routes_info in routing_tables_routes.items():
             if not extra_routes[bridge]:
                 continue
             for route_info in routes_info:
-                oif = ipdb.interfaces[bridge].index
+                oif = ndb.interfaces[bridge]['index']
                 if route_info['vlan']:
                     vlan_device_name = '{}.{}'.format(bridge,
                                                       route_info['vlan'])
-                    oif = ipdb.interfaces[vlan_device_name].index
-
+                    oif = ndb.interfaces[vlan_device_name]['index']
                 if 'gateway' in route_info['route'].keys():  # subnet route
                     possible_matchings = [
                         r for r in extra_routes[bridge]
                         if (r['dst'] == route_info['route']['dst'] and
-                            r['oif'] == oif and
+                            r['dst_len'] == route_info['route']['dst_len'] and
                             r['gateway'] == route_info['route']['gateway'])]
                 else:  # cr-lrp
                     possible_matchings = [
                         r for r in extra_routes[bridge]
                         if (r['dst'] == route_info['route']['dst'] and
+                            r['dst_len'] == route_info['route']['dst_len'] and
                             r['oif'] == oif)]
                 for r in possible_matchings:
                     extra_routes[bridge].remove(r)
 
         for bridge, routes in extra_routes.items():
-            routing_table = routing_tables[bridge]
             for route in routes:
+                r_info = {'dst': route['dst'],
+                          'dst_len': route['dst_len'],
+                          'family': route['family'],
+                          'oif': route['oif'],
+                          'gateway': route['gateway'],
+                          'table': routing_tables[bridge]}
                 try:
-                    with ipdb.routes.tables[routing_table][route] as r:
+                    with ndb.routes[r_info] as r:
                         r.remove()
                 except KeyError:
                     LOG.debug("Route already deleted: {}".format(route))
@@ -290,40 +312,59 @@ def del_ndp_proxy(ip, dev, vlan=None):
 
 
 def add_ips_to_dev(nic, ips):
-    with pyroute2.IPDB() as ipdb:
-        with ipdb.interfaces[nic] as iface:
-            for ip in ips:
-                if utils.get_ip_version(ip) == constants.IP_VERSION_6:
-                    iface.add_ip('%s/%s' % (ip, 128))
-                else:
-                    iface.add_ip('%s/%s' % (ip, 32))
+    with pyroute2.NDB() as ndb:
+        try:
+            with ndb.interfaces[nic] as iface:
+                for ip in ips:
+                    address = '{}/32'.format(ip)
+                    if utils.get_ip_version(ip) == constants.IP_VERSION_6:
+                        address = '{}/128'.format(ip)
+                    iface.add_ip(address)
+        except KeyError:
+            # NDB raises KeyError: 'object exists'
+            # if the ip is already added
+            pass
 
 
 def del_ips_from_dev(nic, ips):
-    with pyroute2.IPDB() as ipdb:
-        with ipdb.interfaces[nic] as iface:
+    with pyroute2.NDB() as ndb:
+        with ndb.interfaces[nic] as iface:
             for ip in ips:
+                address = '{}/32'.format(ip)
                 if utils.get_ip_version(ip) == constants.IP_VERSION_6:
-                    iface.del_ip('%s/%s' % (ip, 128))
-                else:
-                    iface.del_ip('%s/%s' % (ip, 32))
+                    address = '{}/128'.format(ip)
+                iface.del_ip(address)
 
 
 def add_ip_rule(ip, table, dev=None, lladdr=None):
     ip_version = utils.get_ip_version(ip)
-    rule = {'dst': ip, 'table': table}
-    # REMOVEME: due to a problem with pyroute, look for the rule too
-    # without the mask
-    rule_aux = {'dst': ip.split("/")[0], 'table': table}
-    if ip_version == constants.IP_VERSION_6:
-        rule['family'] = AF_INET6
-        rule_aux['family'] = AF_INET6
+    ip_info = ip.split("/")
 
-    with pyroute2.IPRoute() as iproute:
-        if (not iproute.get_rules(**rule) and
-                not iproute.get_rules(**rule_aux)):
-            iproute.rule('add', **rule)
-        if lladdr:
+    if len(ip_info) == 1:
+        rule = {'dst': ip_info[0], 'table': table, 'dst_len': 32}
+        if ip_version == constants.IP_VERSION_6:
+            rule['dst_len'] = 128
+            rule['family'] = AF_INET6
+    elif len(ip_info) == 2:
+        rule = {'dst': ip_info[0], 'table': table, 'dst_len': int(ip_info[1])}
+        if ip_version == constants.IP_VERSION_6:
+            rule['family'] = AF_INET6
+    else:
+        LOG.error("Invalid ip: {}".format(ip))
+        return
+
+    with pyroute2.NDB() as ndb:
+        try:
+            ndb.rules[rule]
+        except KeyError:
+            LOG.debug("Creating ip rule with: {}".format(rule))
+            ndb.rules.create(rule).commit()
+
+    # FIXME: There is no support for creating neighbours in NDB
+    # So we are using iproute here
+    if lladdr:
+        ip_version = utils.get_ip_version(ip)
+        with pyroute2.IPRoute() as iproute:
             # This is doing something like:
             # sudo ip nei replace 172.24.4.69
             # lladdr fa:16:3e:d3:5d:7b dev br-ex nud permanent
@@ -345,17 +386,32 @@ def add_ip_rule(ip, table, dev=None, lladdr=None):
 
 def del_ip_rule(ip, table, dev=None, lladdr=None):
     ip_version = utils.get_ip_version(ip)
-    rule = {'dst': ip, 'table': table}
-    # REMOVEME: due to a problem with pyroute, look for the rule too
-    # without the mask
-    rule_aux = {'dst': ip.split("/")[0], 'table': table}
-    if ip_version == constants.IP_VERSION_6:
-        rule['family'] = AF_INET6
-        rule_aux['family'] = AF_INET6
-    with pyroute2.IPRoute() as iproute:
-        if iproute.get_rules(**rule) or iproute.get_rules(**rule_aux):
-            iproute.rule('del', **rule)
-        if lladdr:
+    ip_info = ip.split("/")
+
+    if len(ip_info) == 1:
+        rule = {'dst': ip_info[0], 'table': table, 'dst_len': 32}
+        if ip_version == constants.IP_VERSION_6:
+            rule['dst_len'] = 128
+            rule['family'] = AF_INET6
+    elif len(ip_info) == 2:
+        rule = {'dst': ip_info[0], 'table': table, 'dst_len': int(ip_info[1])}
+        if ip_version == constants.IP_VERSION_6:
+            rule['family'] = AF_INET6
+    else:
+        LOG.error("Invalid ip: {}".format(ip))
+        return
+    with pyroute2.NDB() as ndb:
+        try:
+            ndb.rules[rule].remove.commit()
+            LOG.debug("Deleting ip rule with: {}".format(rule))
+        except KeyError:
+            LOG.debug("Rule already deleted: {}".format(rule))
+
+    # FIXME: There is no support for deleting neighbours in NDB
+    # So we are using iproute here
+    if lladdr:
+        ip_version = utils.get_ip_version(ip)
+        with pyroute2.IPRoute() as iproute:
             # This is doing something like:
             # sudo ip nei del 172.24.4.69
             # lladdr fa:16:3e:d3:5d:7b dev br-ex nud permanent
@@ -378,43 +434,43 @@ def del_ip_rule(ip, table, dev=None, lladdr=None):
 
 def add_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
                   vlan=None, mask=None, via=None):
-    if not mask:  # default /32 or /128
+    net_ip = ip_address
+    if not mask:  # default /32 or /128   
         if utils.get_ip_version(ip_address) == constants.IP_VERSION_6:
-            ip = '{}/{}'.format(ip_address, 128)
+            mask = 128
         else:
-            ip = '{}/{}'.format(ip_address, 32)
+            mask = 32
     else:
         ip = '{}/{}'.format(ip_address, mask)
         if utils.get_ip_version(ip_address) == constants.IP_VERSION_6:
-            net_ip = ipaddress.IPv6Network(ip,
-                                            strict=False).network_address
-            ip = '{}/{}'.format(net_ip, mask)
+            net_ip = '{}'.format(ipaddress.IPv6Network(
+                ip, strict=False).network_address)
         else:
-            net_ip = ipaddress.IPv4Network(ip,
-                                            strict=False).network_address
-            ip = '{}/{}'.format(net_ip, mask)
+            net_ip = '{}'.format(ipaddress.IPv4Network(
+                ip, strict=False).network_address)
 
     if via:
-        route = {'dst': ip, 'gateway': via, 'table': rule_table,
-                 'proto': 3, 'scope': 0}
+        route = {'dst': net_ip, 'dst_len': int(mask), 'gateway': via,
+                 'table': rule_table, 'proto': 3, 'scope': 0}
     else:
-        with pyroute2.IPRoute() as iproute:
+        with pyroute2.NDB() as ndb:
             if vlan:
                 oif_name = '{}.{}'.format(dev, vlan)
-                oif = iproute.link_lookup(ifname=oif_name)[0]
+                oif = ndb.interfaces[oif_name]['index']
             else:
-                oif = iproute.link_lookup(ifname=dev)[0]
-        route = {'dst': ip, 'oif': oif, 'table': rule_table, 'proto': 3,
-                 'scope': 253}
-    if utils.get_ip_version(ip) == constants.IP_VERSION_6:
+                oif = ndb.interfaces[dev]['index']
+        route = {'dst': net_ip, 'dst_len': int(mask), 'oif': oif,
+                 'table': rule_table, 'proto': 3, 'scope': 253}
+    if utils.get_ip_version(net_ip) == constants.IP_VERSION_6:
         route['family'] = AF_INET6
         del route['scope']
-    with pyroute2.IPDB() as ipdb:
+
+    with pyroute2.NDB() as ndb:
         try:
-            ipdb.routes.tables[rule_table][route]
-            LOG.debug("Route already existing: {}".format(route))
+            with ndb.routes[route] as r:
+                LOG.debug("Route already existing: {}".format(r))
         except KeyError:
-            ipdb.routes.add(route).commit()
+            ndb.routes.create(route).commit()
             LOG.debug("Route created at table {}: {}".format(rule_table,
                                                              route))
     route_info = {'vlan': vlan, 'route': route}
@@ -423,40 +479,41 @@ def add_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
 
 def del_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
                   vlan=None, mask=None, via=None):
-    if not mask:  # default /32 or /128
+    net_ip = ip_address
+    if not mask:  # default /32 or /128   
         if utils.get_ip_version(ip_address) == constants.IP_VERSION_6:
-            ip = '{}/{}'.format(ip_address, 128)
+            mask = 128
         else:
-            ip = '{}/{}'.format(ip_address, 32)
+            mask = 32
     else:
         ip = '{}/{}'.format(ip_address, mask)
         if utils.get_ip_version(ip_address) == constants.IP_VERSION_6:
-            net_ip = ipaddress.IPv6Network(ip,
-                                            strict=False).network_address
-            ip = '{}/{}'.format(net_ip, mask)
+            net_ip = '{}'.format(ipaddress.IPv6Network(
+                ip, strict=False).network_address)
         else:
-            net_ip = ipaddress.IPv4Network(ip,
-                                            strict=False).network_address
-            ip = '{}/{}'.format(net_ip, mask)
+            net_ip = '{}'.format(ipaddress.IPv4Network(
+                ip, strict=False).network_address)
 
     if via:
-        route = {'dst': ip, 'gateway': via, 'table': rule_table,
-                 'proto': 3, 'scope': 0}
+        route = {'dst': net_ip, 'dst_len': int(mask), 'gateway': via,
+                 'table': rule_table, 'proto': 3, 'scope': 0}
     else:
-        with pyroute2.IPRoute() as iproute:
+        with pyroute2.NDB() as ndb:
             if vlan:
                 oif_name = '{}.{}'.format(dev, vlan)
-                oif = iproute.link_lookup(ifname=oif_name)[0]
+                oif = ndb.interfaces[oif_name]['index']
             else:
-                oif = iproute.link_lookup(ifname=dev)[0]
-        route = {'dst': ip, 'oif': oif, 'table': rule_table, 'proto': 3,
-                 'scope': 253}
-    if utils.get_ip_version(ip) == constants.IP_VERSION_6:
+                oif = ndb.interfaces[dev]['index']
+        route = {'dst': net_ip, 'dst_len': int(mask), 'oif': oif,
+                 'table': rule_table, 'proto': 3, 'scope': 253}
+
+    if utils.get_ip_version(net_ip) == constants.IP_VERSION_6:
         route['family'] = AF_INET6
         del route['scope']
-    with pyroute2.IPDB() as ipdb:
+
+    with pyroute2.NDB() as ndb:
         try:
-            with ipdb.routes.tables[rule_table][route] as r:
+            with ndb.routes[route] as r:
                 r.remove()
             LOG.debug("Route deleted at table {}: {}".format(rule_table,
                                                              route))

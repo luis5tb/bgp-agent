@@ -85,44 +85,42 @@ def remove_extra_ovs_flows(flows_info):
 
 def ensure_bridge_ovs_flows(ovn_bridge_mappings):
     cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
-    with pyroute2.IPDB() as ipdb:
-        for bridge in ovn_bridge_mappings:
-            mac = None
-            with ipdb.interfaces[bridge] as iface:
-                mac = iface.address
-            ovs_port = ovs_cmd('ovs-vsctl',
-                               ['list-ports', bridge])[0].rstrip()
-            if not ovs_port:
-                continue
-            ovs_ofport = ovs_cmd(
-                'ovs-vsctl', ['get', 'Interface', ovs_port, 'ofport']
-                )[0].rstrip()
-            flow_filter = ('{},in_port={}').format(cookie, ovs_ofport)
-            current_flows = ovs_cmd(
-                'ovs-ofctl', ['dump-flows', bridge, flow_filter]
+    for bridge in ovn_bridge_mappings:
+        mac = None
+        with pyroute2.NDB().interfaces[bridge] as iface:
+            mac = iface['address']
+        ovs_port = ovs_cmd('ovs-vsctl', ['list-ports', bridge])[0].rstrip()
+        if not ovs_port:
+            continue
+        ovs_ofport = ovs_cmd(
+            'ovs-vsctl', ['get', 'Interface', ovs_port, 'ofport']
+            )[0].rstrip()
+        flow_filter = ('{},in_port={}').format(cookie, ovs_ofport)
+        current_flows = ovs_cmd(
+            'ovs-ofctl', ['dump-flows', bridge, flow_filter]
+            )[0].split('\n')[1:-1]
+        if len(current_flows) == 1:
+            # assume the rule is the right one as it has the right cookie
+            # and in_port
+            continue
+
+        flow = ("cookie={},priority=1000,ip,in_port={},"
+                "actions=mod_dl_dst:{},NORMAL".format(
+                constants.OVS_RULE_COOKIE, ovs_ofport, mac))
+        ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
+
+        # Remove unneeded flows
+        cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
+        port = 'in_port={}'.format(ovs_ofport)
+        current_flows = ovs_cmd(
+                'ovs-ofctl', ['dump-flows', bridge, cookie]
                 )[0].split('\n')[1:-1]
-            if len(current_flows) == 1:
-                # assume the rule is the right one as it has the right cookie
-                # and in_port
+        for flow in current_flows:
+            if not flow or port in flow:
                 continue
-
-            flow = ("cookie={},priority=1000,ip,in_port={},"
-                    "actions=mod_dl_dst:{},NORMAL".format(
-                    constants.OVS_RULE_COOKIE, ovs_ofport, mac))
-            ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
-
-            # Remove unneeded flows
-            cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
-            port = 'in_port={}'.format(ovs_ofport)
-            current_flows = ovs_cmd(
-                    'ovs-ofctl', ['dump-flows', bridge, cookie]
-                    )[0].split('\n')[1:-1]
-            for flow in current_flows:
-                if not flow or port in flow:
-                    continue
-                in_port = flow.split("in_port=")[1].split(" ")[0]
-                del_flow = ('{},in_port={}').format(cookie, in_port)
-                ovs_cmd('ovs-ofctl', ['del-flows', bridge, del_flow])
+            in_port = flow.split("in_port=")[1].split(" ")[0]
+            del_flow = ('{},in_port={}').format(cookie, in_port)
+            ovs_cmd('ovs-ofctl', ['del-flows', bridge, del_flow])
 
 class OvsIdl(object):
     def start(self, connection_string):
