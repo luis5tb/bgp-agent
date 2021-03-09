@@ -283,6 +283,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
             if network_tag:
                 return self.ovn_bridge_mappings[network_name], network_tag[0]
             return self.ovn_bridge_mappings[network_name], None
+        return None, None
 
     @lockutils.synchronized('bgp')
     def expose_IP(self, ips, row, associated_port=None):
@@ -392,7 +393,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                     # add proxy ndp config for ipv6
                     if (utils.get_ip_version(ip_without_mask) ==
                             constants.IP_VERSION_6):
-                        linux_net.add_ndp_proxy(ip, rule_bridge)
+                        linux_net.add_ndp_proxy(ip, rule_bridge, vlan_tag)
 
                 # Check if there are networks attached to the router,
                 # and if so, add the needed routes/rules
@@ -506,7 +507,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                         vlan=vlan_tag)
                     # del proxy ndp config for ipv6
                     if utils.get_ip_version(ip) == constants.IP_VERSION_6:
-                        linux_net.del_ndp_proxy(ip, rule_bridge)
+                        linux_net.del_ndp_proxy(ip, rule_bridge, vlan_tag)
 
                 # Check if there are networks attached to the router,
                 # and if so, delete the needed routes/rules

@@ -254,11 +254,14 @@ def delete_bridge_ip_routes(routing_tables, routing_tables_routes,
                     LOG.debug("Route already deleted: {}".format(route))
 
 
-def add_ndp_proxy(ip, dev):
+def add_ndp_proxy(ip, dev, vlan=None):
     # FIXME(ltomasbo): This should use pyroute instead but I didn't find
     # out how
     net_ip = str(ipaddress.IPv6Network(ip, strict=False).network_address)
-    command = ["ip", "-6", "nei", "add", "proxy", net_ip, "dev", dev]
+    dev_name = dev
+    if vlan:
+        dev_name = "{}.{}".format(dev, vlan)
+    command = ["ip", "-6", "nei", "add", "proxy", net_ip, "dev", dev_name]
     try:
         return processutils.execute(*command, run_as_root=True)
     except Exception as e:
@@ -267,11 +270,14 @@ def add_ndp_proxy(ip, dev):
         raise
 
 
-def del_ndp_proxy(ip, dev):
+def del_ndp_proxy(ip, dev, vlan=None):
     # FIXME(ltomasbo): This should use pyroute instead but I didn't find
     # out how
     net_ip = str(ipaddress.IPv6Network(ip, strict=False).network_address)
-    command = ["ip", "-6", "nei", "del", "proxy", net_ip, "dev", dev]
+    dev_name = dev
+    if vlan:
+        dev_name = "{}.{}".format(dev, vlan)
+    command = ["ip", "-6", "nei", "del", "proxy", net_ip, "dev", dev_name]
     try:
         return processutils.execute(*command, run_as_root=True)
     except Exception as e:
