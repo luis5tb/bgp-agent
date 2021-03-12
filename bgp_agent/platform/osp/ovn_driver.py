@@ -38,7 +38,7 @@ LOG = logging.getLogger(__name__)
 class OSPOVNDriver(driver_api.AgentDriverBase):
 
     def __init__(self):
-        self._expose_tenant_networks = True
+        self._expose_tenant_networks = CONF.expose_tenant_networks
         self.ovn_routing_tables = {}  # {'br-ex': 200}
         self.ovn_bridge_mappings = {}  # {'public': 'br-ex'}
         self.ovn_local_cr_lrps = {}
