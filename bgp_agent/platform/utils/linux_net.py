@@ -449,21 +449,24 @@ def add_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
             net_ip = '{}'.format(ipaddress.IPv4Network(
                 ip, strict=False).network_address)
 
+    with pyroute2.NDB() as ndb:
+        if vlan:
+            oif_name = '{}.{}'.format(dev, vlan)
+            oif = ndb.interfaces[oif_name]['index']
+        else:
+            oif = ndb.interfaces[dev]['index']
+
+    route = {'dst': net_ip, 'dst_len': int(mask), 'oif': oif,
+             'table': rule_table, 'proto': 3}
     if via:
-        route = {'dst': net_ip, 'dst_len': int(mask), 'gateway': via,
-                 'table': rule_table, 'proto': 3, 'scope': 0}
+        route['gateway'] = via
+        route['scope'] = 0
     else:
-        with pyroute2.NDB() as ndb:
-            if vlan:
-                oif_name = '{}.{}'.format(dev, vlan)
-                oif = ndb.interfaces[oif_name]['index']
-            else:
-                oif = ndb.interfaces[dev]['index']
-        route = {'dst': net_ip, 'dst_len': int(mask), 'oif': oif,
-                 'table': rule_table, 'proto': 3, 'scope': 253}
+        route['scope'] = 253
     if utils.get_ip_version(net_ip) == constants.IP_VERSION_6:
         route['family'] = AF_INET6
         del route['scope']
+
 
     with pyroute2.NDB() as ndb:
         try:
@@ -494,22 +497,22 @@ def del_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
             net_ip = '{}'.format(ipaddress.IPv4Network(
                 ip, strict=False).network_address)
 
-    if via:
-        route = {'dst': net_ip, 'dst_len': int(mask), 'gateway': via,
-                 'table': rule_table, 'proto': 3, 'scope': 0}
-    else:
-        with pyroute2.NDB() as ndb:
-            if vlan:
-                oif_name = '{}.{}'.format(dev, vlan)
-                oif = ndb.interfaces[oif_name]['index']
-            else:
-                oif = ndb.interfaces[dev]['index']
-        route = {'dst': net_ip, 'dst_len': int(mask), 'oif': oif,
-                 'table': rule_table, 'proto': 3, 'scope': 253}
+    with pyroute2.NDB() as ndb:
+        if vlan:
+            oif_name = '{}.{}'.format(dev, vlan)
+            oif = ndb.interfaces[oif_name]['index']
+        else:
+            oif = ndb.interfaces[dev]['index']
 
+    route = {'dst': net_ip, 'dst_len': int(mask), 'oif': oif,
+             'table': rule_table, 'proto': 3}
+    if via:
+        route['gateway'] = via
+        route['scope'] = 0
+    else:
+        route['scope'] = 253
     if utils.get_ip_version(net_ip) == constants.IP_VERSION_6:
         route['family'] = AF_INET6
-        del route['scope']
 
     with pyroute2.NDB() as ndb:
         try:
