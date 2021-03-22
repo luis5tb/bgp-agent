@@ -91,27 +91,28 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         bridge_mappings = self.ovs_idl.get_ovn_bridge_mappings()
         # 2) Get macs for bridge mappings
         extra_routes = {}
-        for bridge_mapping in bridge_mappings:
-            network = bridge_mapping.split(":")[0]
-            bridge = bridge_mapping.split(":")[1]
-            self.ovn_bridge_mappings[network] = bridge
-            if not extra_routes.get(bridge):
-                extra_routes[bridge] = (
-                    linux_net.ensure_routing_table_for_bridge(
-                        self.ovn_routing_tables, bridge))
-            vlan_tag = self.sb_idl.get_network_vlan_tag_by_network_name(
-                network)
-            if vlan_tag:
-                linux_net.ensure_vlan_device_for_network(bridge,
-                                                         vlan_tag)
+        with pyroute2.NDB() as ndb:
+            for bridge_mapping in bridge_mappings:
+                network = bridge_mapping.split(":")[0]
+                bridge = bridge_mapping.split(":")[1]
+                self.ovn_bridge_mappings[network] = bridge
+                if not extra_routes.get(bridge):
+                    extra_routes[bridge] = (
+                        linux_net.ensure_routing_table_for_bridge(
+                            self.ovn_routing_tables, bridge))
+                vlan_tag = self.sb_idl.get_network_vlan_tag_by_network_name(
+                    network)
+                if vlan_tag:
+                    linux_net.ensure_vlan_device_for_network(bridge,
+                                                             vlan_tag)
 
-            if flows_info.get(bridge):
-                continue
-            with pyroute2.NDB().interfaces[bridge] as iface:
-                flows_info[bridge] = {'mac': iface['address']}
-                flows_info[bridge]['in_port'] = set([])
-            # 3) Get in_port for bridge mappings (br-ex, br-ex2)
-            ovs.get_ovs_flows(bridge, flows_info)
+                if flows_info.get(bridge):
+                    continue
+                flows_info[bridge] = {
+                    'mac': ndb.interfaces[bridge]['address'],
+                    'in_port': set([])}
+                # 3) Get in_port for bridge mappings (br-ex, br-ex2)
+                ovs.get_ovs_flows(bridge, flows_info)
         # 4) Add/Remove flows for each bridge mappings
         ovs.remove_extra_ovs_flows(flows_info)
 
