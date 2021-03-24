@@ -402,7 +402,7 @@ def del_ip_rule(ip, table, dev=None, lladdr=None):
         return
     with pyroute2.NDB() as ndb:
         try:
-            ndb.rules[rule].remove.commit()
+            ndb.rules[rule].remove().commit()
             LOG.debug("Deleting ip rule with: {}".format(rule))
         except KeyError:
             LOG.debug("Rule already deleted: {}".format(rule))
