@@ -12,11 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from oslo_config import cfg
+
+from ovs.stream import Stream
 from ovsdbapp.backend import ovs_idl
 from ovsdbapp.backend.ovs_idl import connection
 from ovsdbapp.backend.ovs_idl import idlutils
 from ovsdbapp import event
 from ovsdbapp.schema.ovn_southbound import impl_idl as sb_impl_idl
+
+CONF = cfg.CONF
 
 
 class OvnIdl(connection.OvsdbIdl):
@@ -43,6 +48,8 @@ class OvnSbIdl(OvnIdl):
 
     def __init__(self, connection_string, chassis=None, events=None,
                  tables=None):
+        if connection_string.startswith("ssl"):
+            self._check_and_set_ssl_files(self.SCHEMA)
         helper = self._get_ovsdb_helper(connection_string)
         self._events = events
         if tables is None:
@@ -59,6 +66,20 @@ class OvnSbIdl(OvnIdl):
 
     def _get_ovsdb_helper(self, connection_string):
         return idlutils.get_schema_helper(connection_string, self.SCHEMA)
+
+    def _check_and_set_ssl_files(self, schema_name):
+        priv_key_file = CONF.ovn_sb_private_key
+        cert_file = CONF.ovn_sb_certificate
+        ca_cert_file = CONF.ovn_sb_ca_cert
+
+        if priv_key_file:
+            Stream.ssl_set_private_key_file(priv_key_file)
+
+        if cert_file:
+            Stream.ssl_set_certificate_file(cert_file)
+
+        if ca_cert_file:
+            Stream.ssl_set_ca_cert_file(ca_cert_file)
 
     def start(self):
         conn = connection.Connection(

@@ -47,6 +47,18 @@ agent_opts = [
     cfg.StrOpt('driver',
                help='Driver to be used',
                default='osp_ovn_driver'),
+    cfg.StrOpt('ovn_sb_private_key',
+               default='/etc/pki/tls/private/ovn_controller.key',
+               help='The PEM file with private key for SSL connection to '
+                    'OVN-SB-DB'),
+    cfg.StrOpt('ovn_sb_certificate',
+               default='/etc/pki/tls/certs/ovn_controller.crt',
+               help='The PEM file with certificate that certifies the '
+                    'private key specified in ovn_sb_private_key'),
+    cfg.StrOpt('ovn_sb_ca_cert',
+               default='/etc/ipa/ca.crt',
+               help='The PEM file with CA certificate that OVN should use to'
+                    ' verify certificates presented to it by SSL peers'),
 ]
 
 CONF = cfg.CONF
