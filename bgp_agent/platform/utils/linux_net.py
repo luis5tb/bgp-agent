@@ -14,6 +14,7 @@
 
 import ipaddress
 import pyroute2
+import random
 import re
 import sys
 
@@ -70,11 +71,23 @@ def ensure_routing_table_for_bridge(ovn_routing_tables, bridge):
         ovn_routing_tables[table_info[1]] = int(table_info[0])
         LOG.debug("Found routing table for {} with: {}".format(bridge,
                   table_info))
-    # if not raise configuration error and exit
+    # if not configured, add random number for the table
     else:
-        LOG.error(("Routing table for bridge {} must be configure "
-                   "at /etc/iproute2/rt_tables").format(bridge))
-        sys.exit()
+        LOG.warning(("Routing table for bridge {} not configured "
+                     "at /etc/iproute2/rt_tables").format(bridge))
+        regex = '^[0-9]*[\s]*[a-z|\-]*$'
+        existing_routes = [line.replace('\t', ' ').split(' ')[0]
+                           for line in open('/etc/iproute2/rt_tables')
+                           if re.findall(regex, line)]
+        # pick a number between 1 and 252
+        table_number = random.choice(
+            [x for x in range(253) if x not in existing_routes])
+        with open('/etc/iproute2/rt_tables', 'a') as rt_tables:
+            rt_tables.write('{} {}\n'.format(table_number, bridge))
+
+        ovn_routing_tables[bridge] = int(table_number)
+        LOG.debug("Added routing table for {} with number: {}".format(bridge,
+                  table_number))
 
     # add default route on that table if it does not exist
     extra_routes = []
