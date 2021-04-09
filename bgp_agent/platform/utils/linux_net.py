@@ -73,15 +73,21 @@ def ensure_routing_table_for_bridge(ovn_routing_tables, bridge):
                   table_info))
     # if not configured, add random number for the table
     else:
-        LOG.warning(("Routing table for bridge {} not configured "
-                     "at /etc/iproute2/rt_tables").format(bridge))
-        regex = '^[0-9]*[\s]*[a-z|\-]*$'
-        existing_routes = [line.replace('\t', ' ').split(' ')[0]
+        LOG.debug(("Routing table for bridge {} not configured "
+                   "at /etc/iproute2/rt_tables").format(bridge))
+        regex = '^[0-9]+[\s]*'
+        existing_routes = [int(line.replace('\t', ' ').split(' ')[0])
                            for line in open('/etc/iproute2/rt_tables')
                            if re.findall(regex, line)]
         # pick a number between 1 and 252
-        table_number = random.choice(
-            [x for x in range(253) if x not in existing_routes])
+        try:
+            table_number = random.choice(
+                [x for x in range(1, 253) if x not in existing_routes])
+        except IndexError:
+            LOG.error(("No more routing tables available for bridge {} "
+                       "at /etc/iproute2/rt_tables").format(bridge))
+            sys.exit()
+
         with open('/etc/iproute2/rt_tables', 'a') as rt_tables:
             rt_tables.write('{} {}\n'.format(table_number, bridge))
 
