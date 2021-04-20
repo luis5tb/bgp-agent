@@ -541,5 +541,5 @@ def del_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
                                                              route))
             route_info = {'vlan': vlan, 'route': route}
             ovn_routing_tables_routes[dev].remove(route_info)
-        except KeyError:
+        except (KeyError, ValueError):
             LOG.debug("Route already deleted: {}".format(route))
