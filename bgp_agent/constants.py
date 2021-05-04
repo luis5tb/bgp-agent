@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-OVN_VIF_PORT_TYPES = ("", "chassisredirect", )
+OVN_VIF_PORT_TYPES = ("", "chassisredirect", "virtual")
 
 OVN_BGP_NIC = "ovn"
 OVN_BGP_VRF = "ovn-bgp-vrf"

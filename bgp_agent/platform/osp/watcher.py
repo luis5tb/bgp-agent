@@ -206,7 +206,7 @@ class TenantPortCreatedEvent(PortBindingChassisEvent):
             return False
 
     def run(self, event, row, old):
-        if row.type != "":
+        if row.type != "" and row.type != "virtual":
             return
         with _SYNC_STATE_LOCK.read_lock():
             ips = [row.mac[0].split(' ')[1]]
@@ -233,7 +233,7 @@ class TenantPortDeletedEvent(PortBindingChassisEvent):
             return False
 
     def run(self, event, row, old):
-        if row.type != "":
+        if row.type != "" and row.type != "virtual":
             return
         with _SYNC_STATE_LOCK.read_lock():
             ips = [row.mac[0].split(' ')[1]]

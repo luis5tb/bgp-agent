@@ -220,7 +220,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
             ports = self.sb_idl.get_ports_on_datapath(
                 network_port_datapath)
             for port in ports:
-                if port.type != "":
+                if port.type != "" and port.type != "virtual":
                     continue
                 try:
                     port_ips = [port.mac[0].split(' ')[1]]
@@ -317,7 +317,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
     def _expose_IP(self, ips, row, associated_port=None):
         # VM on provider Network
-        if row.type == "" and self.sb_idl.is_provider_network(row.datapath):
+        if ((row.type == "" or row.type == "virtual") and
+                self.sb_idl.is_provider_network(row.datapath)):
             LOG.info("Add BGP route for logical port with ip {}".format(ips))
             linux_net.add_ips_to_dev(constants.OVN_BGP_NIC, ips)
 
@@ -332,7 +333,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                     vlan=vlan_tag)
 
         # VM with FIP
-        elif row.type == "":
+        elif row.type == "" or row.type == "virtual":
             # FIPs are only supported with IPv4
             fip_address, fip_datapath = self.sb_idl.get_fip_associated(
                 row.logical_port)
@@ -435,7 +436,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         - CR-LRP OVN port
         '''
         # VM on provider Network
-        if row.type == "" and self.sb_idl.is_provider_network(row.datapath):
+        if ((row.type == "" or row.type == "virtual") and
+                self.sb_idl.is_provider_network(row.datapath)):
             LOG.info("Delete BGP route for logical port with ip {}".format(ips))
             linux_net.del_ips_from_dev(constants.OVN_BGP_NIC, ips)
 
@@ -450,7 +452,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
                     vlan=vlan_tag)
 
         # VM with FIP
-        elif row.type == "":
+        elif row.type == "" or row.type == "virtual":
             # FIPs are only supported with IPv4
             fip_address, fip_datapath = self.sb_idl.get_fip_associated(
                 row.logical_port)
