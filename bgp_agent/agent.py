@@ -59,6 +59,10 @@ class BGPAgent(service.Service, periodic_task.PeriodicTasks,
         LOG.info("Running reconciliation loop to ensure routes/rules are "
                  "in place.")
         self.agent_driver.sync()
+        import psutil
+        import os
+        proc = psutil.Process(os.getpid())
+        LOG.info("MEMORY USAGE PER PROCESS: {}".format(proc.memory_info().rss))
 
     def wait(self):
         super(BGPAgent, self).wait()
