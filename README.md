@@ -236,7 +236,6 @@ As a python script on the compute nodes:
     expose_tenant_networks=True
     watcher_handler=osp_watcher
     watcher_events=PortBindingChassisCreatedEvent,PortBindingChassisDeletedEvent,FIPSetEvent,FIPUnsetEvent,SubnetRouterAttachedEvent,SubnetRouterDetachedEvent,TenantPortCreatedEvent,TenantPortDeletedEvent,ChassisCreateEvent
-    watcher_tables=Port_Binding,Datapath_Binding,SB_Global,Chassis
     driver=osp_ovn_driver
 
     $ sudo bgp-agent --config-dir bgp-agent.conf

@@ -35,6 +35,8 @@ LOG = logging.getLogger(__name__)
 # LOG.setLevel(logging.DEBUG)
 # logging.basicConfig(level=logging.DEBUG)
 
+OVN_TABLES = ("Port_Binding", "Chassis")
+
 
 class OSPOVNDriver(driver_api.AgentDriverBase):
 
@@ -53,7 +55,6 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         self.ovn_remote = self.ovs_idl.get_ovn_remote()
         LOG.debug("Loaded chassis {}.".format(self.chassis))
 
-        self._tables = tuple(CONF.watcher_tables)
         events = ()
         for event in CONF.watcher_events:
             event_class = getattr(watcher, event)
@@ -62,7 +63,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         self._sb_idl = ovn.OvnSbIdl(
             self.ovn_remote,
             chassis=self.chassis,
-            tables=self._tables,
+            tables=OVN_TABLES,
             events=events)
 
     def start(self):
