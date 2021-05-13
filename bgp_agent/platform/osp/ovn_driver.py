@@ -410,6 +410,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
                 # Check if there are networks attached to the router,
                 # and if so, add the needed routes/rules
+                if not self._expose_tenant_networks:
+                    return
                 lrp_ports = self.sb_idl.get_lrp_ports_for_router(
                     row.datapath)
                 for lrp in lrp_ports:
@@ -541,7 +543,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
     @lockutils.synchronized('bgp')
     def expose_remote_IP(self, ips, row):
-        if self.sb_idl.is_provider_network(row.datapath):
+        if self.sb_idl.is_provider_network(row.datapath) or not self._expose_tenant_networks:
             return
         port_lrp = self.sb_idl.get_lrp_port_for_datapath(row.datapath)
         if port_lrp in self.ovn_local_lrps:
@@ -561,6 +563,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
     @lockutils.synchronized('bgp')
     def expose_subnet(self, ip, row):
+        if not self._expose_tenant_networks:
+            return
         cr_lrp = self.sb_idl.is_router_gateway_on_chassis(row.datapath,
                                                           self.chassis)
         if cr_lrp:
