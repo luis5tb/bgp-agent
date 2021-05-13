@@ -56,7 +56,7 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         LOG.debug("Loaded chassis {}.".format(self.chassis))
 
         events = ()
-        for event in CONF.watcher_events:
+        for event in self._get_mode_events(CONF.mode):
             event_class = getattr(watcher, event)
             events += (event_class(self),)
 
@@ -70,6 +70,25 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         # start the subscriptions to the OSP events. This ensures the watcher
         # calls the relevant driver methods upon registered events
         self.sb_idl = self._sb_idl.start()
+
+    def _get_mode_events(self, mode):
+        events = set(["PortBindingChassisCreatedEvent",
+                      "PortBindingChassisDeletedEvent",
+                      "ChassisCreateEvent"])
+        if constants.BGP_MODE in mode:
+            events.update(["FIPSetEvent",
+                           "FIPUnsetEvent"])
+            if self._expose_tenant_networks:
+                events.update(["SubnetRouterAttachedEvent",
+                               "SubnetRouterDetachedEvent",
+                               "TenantPortCreatedEvent",
+                               "TenantPortDeletedEvent"])
+        if constants.EVPN_MODE in mode:
+            events.update(["SubnetRouterAttachedEvent",
+                           "SubnetRouterDetachedEvent",
+                           "TenantPortCreatedEvent",
+                           "TenantPortDeletedEvent"])
+        return events
 
     @lockutils.synchronized('bgp')
     def sync(self):
@@ -320,6 +339,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         # VM on provider Network
         if ((row.type == "" or row.type == "virtual") and
                 self.sb_idl.is_provider_network(row.datapath)):
+            if constants.BGP_MODE not in CONF.mode:
+                return
             LOG.info("Add BGP route for logical port with ip {}".format(ips))
             linux_net.add_ips_to_dev(constants.OVN_BGP_NIC, ips)
 
@@ -335,6 +356,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
         # VM with FIP
         elif row.type == "" or row.type == "virtual":
+            if constants.BGP_MODE not in CONF.mode:
+                return
             # FIPs are only supported with IPv4
             fip_address, fip_datapath = self.sb_idl.get_fip_associated(
                 row.logical_port)
@@ -358,6 +381,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
         # FIP association to VM
         elif row.type == "patch":
+            if constants.BGP_MODE not in CONF.mode:
+                return
             if (associated_port and self.sb_idl.is_port_on_chassis(
                     associated_port, self.chassis)):
                 LOG.info("Add BGP route for FIP with ip {}".format(ips))
@@ -441,6 +466,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
         # VM on provider Network
         if ((row.type == "" or row.type == "virtual") and
                 self.sb_idl.is_provider_network(row.datapath)):
+            if constants.BGP_MODE not in CONF.mode:
+                return
             LOG.info("Delete BGP route for logical port with ip {}".format(ips))
             linux_net.del_ips_from_dev(constants.OVN_BGP_NIC, ips)
 
@@ -456,6 +483,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
         # VM with FIP
         elif row.type == "" or row.type == "virtual":
+            if constants.BGP_MODE not in CONF.mode:
+                return
             # FIPs are only supported with IPv4
             fip_address, fip_datapath = self.sb_idl.get_fip_associated(
                 row.logical_port)
@@ -477,6 +506,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
         # FIP association to VM
         elif row.type == "patch":
+            if constants.BGP_MODE not in CONF.mode:
+                return
             if (associated_port and (
                     self.sb_idl.is_port_on_chassis(
                         associated_port, self.chassis) or
@@ -544,7 +575,9 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
     @lockutils.synchronized('bgp')
     def expose_remote_IP(self, ips, row):
-        if self.sb_idl.is_provider_network(row.datapath) or not self._expose_tenant_networks:
+        if (self.sb_idl.is_provider_network(row.datapath) or
+                (constants.BGP_MODE in CONF.mode and
+                 not self._expose_tenant_networks)):
             return
         port_lrp = self.sb_idl.get_lrp_port_for_datapath(row.datapath)
         if port_lrp in self.ovn_local_lrps:
@@ -554,7 +587,9 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
     @lockutils.synchronized('bgp')
     def withdraw_remote_IP(self, ips, row):
-        if self.sb_idl.is_provider_network(row.datapath):
+        if (self.sb_idl.is_provider_network(row.datapath) or
+                (constants.BGP_MODE in CONF.mode and
+                 not self._expose_tenant_networks)):
             return
         port_lrp = self.sb_idl.get_lrp_port_for_datapath(row.datapath)
         if port_lrp in self.ovn_local_lrps:
@@ -564,7 +599,8 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
     @lockutils.synchronized('bgp')
     def expose_subnet(self, ip, row):
-        if not self._expose_tenant_networks:
+        if (constants.BGP_MODE in CONF.mode and
+                not self._expose_tenant_networks):
             return
         cr_lrp = self.sb_idl.is_router_gateway_on_chassis(row.datapath,
                                                           self.chassis)
@@ -624,6 +660,9 @@ class OSPOVNDriver(driver_api.AgentDriverBase):
 
     @lockutils.synchronized('bgp')
     def withdraw_subnet(self, ip, row):
+        if (constants.BGP_MODE in CONF.mode and
+                not self._expose_tenant_networks):
+            return
         cr_lrp = self.sb_idl.is_router_gateway_on_chassis(row.datapath,
                                                           self.chassis)
         if cr_lrp:

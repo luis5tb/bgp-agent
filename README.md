@@ -39,9 +39,7 @@ through BGP if:
 - VM has a FIP associated to it (note the IP exposed is the FIP, not the VM IP
 on the tenant network)
 - VM is created on tenant network and `expose_tenant_networks` is set to `True`
-on the config file, as well as the required watcher_events are enabled: 
-`SubnetRouterAttachedEvent`, `SubnetRouterDetachedEvent`,
-`TenantPortCreatedEvent`, `TenantPortDeletedEvent`.
+on the config file, as well as the mode 'BGP'is enabled.
 
 The way the agent advertises the routes is by adding an IP to a predefined
 (dummy) interface associated to a vrf so that default routing table is not
@@ -82,9 +80,7 @@ gateway port is located (i.e., the cr-lrp port). That means the traffic
 will go to it first, and then through the geneve tunnel to the node where
 the VM is.
 - Exposing VMs on tenant networks can be deacticated by setting
-`expose_tenant_networks` to `False` and removing the related watcher_events:
-`SubnetRouterAttachedEvent`, `SubnetRouterDetachedEvent`,
-`TenantPortCreatedEvent`, `TenantPortDeletedEvent`.
+`expose_tenant_networks` to `False`.
 
 
 ### Watcher Events:
@@ -234,8 +230,8 @@ As a python script on the compute nodes:
     debug=True
     reconcile_interval=120
     expose_tenant_networks=True
+    mode=BGP
     watcher_handler=osp_watcher
-    watcher_events=PortBindingChassisCreatedEvent,PortBindingChassisDeletedEvent,FIPSetEvent,FIPUnsetEvent,SubnetRouterAttachedEvent,SubnetRouterDetachedEvent,TenantPortCreatedEvent,TenantPortDeletedEvent,ChassisCreateEvent
     driver=osp_ovn_driver
 
     $ sudo bgp-agent --config-dir bgp-agent.conf
