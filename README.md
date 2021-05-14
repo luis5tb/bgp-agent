@@ -39,7 +39,7 @@ through BGP if:
 - VM has a FIP associated to it (note the IP exposed is the FIP, not the VM IP
 on the tenant network)
 - VM is created on tenant network and `expose_tenant_networks` is set to `True`
-on the config file, as well as the mode 'BGP'is enabled.
+on the config file.
 
 The way the agent advertises the routes is by adding an IP to a predefined
 (dummy) interface associated to a vrf so that default routing table is not
@@ -230,8 +230,6 @@ As a python script on the compute nodes:
     debug=True
     reconcile_interval=120
     expose_tenant_networks=True
-    mode=BGP
-    watcher_handler=osp_watcher
     driver=osp_ovn_driver
 
     $ sudo bgp-agent --config-dir bgp-agent.conf
