@@ -19,6 +19,7 @@ OVN_BGP_VRF = "ovn-bgp-vrf"
 OVN_BGP_VRF_TABLE = 10
 OVS_CONNECTION_STRING = "unix:/var/run/openvswitch/db.sock"
 OVS_RULE_COOKIE = "999"
+OVS_VRF_RULE_COOKIE = "998"
 
 IP_VERSION_6 = 6
 IP_VERSION_4 = 4
@@ -26,3 +27,10 @@ IP_VERSION_4 = 4
 BGP_MODE='BGP'
 EVPN_MODE='EVPN'
 
+OVN_EVPN_VNI_EXT_ID_KEY = 'neutron_bgpvpn:vni'
+OVN_EVPN_RT_EXT_ID_KEY = 'neutron_bgpvpn:rt'
+OVN_EVPN_VRF_PREFIX = "vrf-"
+OVN_EVPN_BRIDGE_PREFIX = "br-"
+OVN_EVPN_VXLAN_PREFIX = "vxlan-"
+OVN_EVPN_LO_PREFIX = "lo-"
+OVN_INTEGRATION_BRIDGE = 'br-int'

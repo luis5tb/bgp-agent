@@ -21,6 +21,8 @@ from ovsdbapp.backend.ovs_idl import idlutils
 from ovsdbapp import event
 from ovsdbapp.schema.ovn_southbound import impl_idl as sb_impl_idl
 
+from bgp_agent import constants
+
 CONF = cfg.CONF
 
 
@@ -203,3 +205,40 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
 
     def get_ports_on_datapath(self, datapath):
         return self._get_ports_by_datapath(datapath)
+
+    def get_evpn_info_from_crlrp_port_name(self, port_name):
+        router_gateway_port_name = port_name.split('cr-lrp-')[1]
+        return self.get_evpn_info_from_port_name(router_gateway_port_name)
+
+    def get_evpn_info_from_lrp_port_name(self, port_name):
+        router_interface_port_name = port_name.split('lrp-')[1]
+        return self.get_evpn_info_from_port_name(router_interface_port_name)
+
+    def get_ip_from_port_peer(self, port):
+        peer_name = port.options['peer']
+        peer_port =  self._get_port_by_name(peer_name)
+        return peer_port.mac[0].split(' ')[1]
+
+    def get_evpn_info_from_port(self, port):
+        return self.get_evpn_info(port)
+
+    def get_evpn_info_from_port_name(self, port_name):
+        port = self._get_port_by_name(port_name)
+        return self.get_evpn_info(port)
+    
+    def get_evpn_info(self, port):
+        try:
+            evpn_info = {
+                'vni': int(port.external_ids[
+                    constants.OVN_EVPN_VNI_EXT_ID_KEY]),
+                'rt': int(port.external_ids[
+                    constants.OVN_EVPN_RT_EXT_ID_KEY])}
+        except KeyError:
+            return {}
+        return evpn_info
+
+    def get_port_if_local_chassis(self, port_name, chassis):
+        port =  self._get_port_by_name(port_name)
+        if port.chassis[0].name == chassis:
+            return port
+        return None

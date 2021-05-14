@@ -31,6 +31,11 @@ from bgp_agent.utils import utils
 LOG = logging.getLogger(__name__)
 
 
+def get_interfaces():
+    with pyroute2.NDB() as ndb:
+        return [iface.ifname for iface in ndb.interfaces]
+
+
 def ensure_vrf(vrf_name, vrf_table):
     with pyroute2.NDB() as ndb:
         try:
@@ -39,24 +44,64 @@ def ensure_vrf(vrf_name, vrf_table):
                     vrf['state'] = 'up'
         except KeyError:
             ndb.interfaces.create(
-                kind="vrf", ifname=vrf_name, vrf_table=vrf_table).set(
+                kind="vrf", ifname=vrf_name, vrf_table=int(vrf_table)).set(
                     'state', 'up').commit()
 
 
-def ensure_ovn_device(ovn_ifname, vrf_name):
+def ensure_bridge(bridge_name):
     with pyroute2.NDB() as ndb:
         try:
-            with ndb.interfaces[ovn_ifname] as iface:
+            with ndb.interfaces[bridge_name] as bridge:
+                if bridge['state'] != "up":
+                    bridge['state'] = 'up'
+        except KeyError:
+            ndb.interfaces.create(
+                kind="bridge", ifname=bridge_name, br_stp_state=0).set(
+                    'state', 'up').commit()
+
+
+def ensure_vxlan(vxlan_name, vni, lo_ip):
+    with pyroute2.NDB() as ndb:
+        try:
+            with ndb.interfaces[vxlan_name] as vxlan:
+                if vxlan['state'] != "up":
+                    vxlan['state'] = 'up'
+        except KeyError:
+            # FIXME: Perhaps we need to set neigh_suppress on
+            ndb.interfaces.create(
+                kind="vxlan", ifname=vxlan_name, vxlan_id=int(vni), vxlan_port=4789,
+                vxlan_local=lo_ip, vxlan_learning=False).set(
+                    'state', 'up').commit()
+
+
+def set_master_for_device(device, master):
+    with pyroute2.NDB() as ndb:
+        # Check if already associated to the master, and associate it if not
+        if (ndb.interfaces[device].get('master') !=
+                ndb.interfaces[master]['index']):
+            with ndb.interfaces[device] as iface:
+                iface.set('master', ndb.interfaces[master]['index'])
+
+
+def ensure_dummy_device(device):
+    with pyroute2.NDB() as ndb:
+        try:
+            with ndb.interfaces[device] as iface:
                 if iface['state'] != "up":
                     iface['state'] = 'up'
         except KeyError:
             ndb.interfaces.create(
-                kind="dummy", ifname=ovn_ifname).set('state', 'up').commit()
+                kind="dummy", ifname=device).set('state', 'up').commit()
 
-        # Check if already associated to a vrf, and associate it if not
-        if not ndb.interfaces[ovn_ifname].get('master'):
-            with ndb.interfaces[ovn_ifname] as iface:
-                iface.set('master', ndb.interfaces[vrf_name]['index'])
+
+def ensure_ovn_device(ovn_ifname, vrf_name):
+    ensure_dummy_device(ovn_ifname)
+    set_master_for_device(ovn_ifname, vrf_name)
+
+
+def delete_device(device):
+    with pyroute2.NDB() as ndb:
+        ndb.interfaces[device].remove().commit()
 
 
 def ensure_routing_table_for_bridge(ovn_routing_tables, bridge):
@@ -201,12 +246,24 @@ def get_exposed_ips(nic):
     return exposed_ips
 
 
+def get_nic_ip(nic, ip_version):
+    prefix = 32
+    if ip_version == constants.IP_VERSION_6:
+        prefix = 128
+    exposed_ips = []
+    with pyroute2.NDB() as ndb:
+        exposed_ips = [ip.address
+                       for ip in ndb.interfaces[nic].ipaddr.summary()
+                       if ip.prefixlen == prefix]
+    return exposed_ips
+
+
 def get_exposed_ips_on_network(nic, network):
     exposed_ips = []
     with pyroute2.NDB() as ndb:
         exposed_ips = [ip.address
                        for ip in ndb.interfaces[nic].ipaddr.summary()
-                       if (ip.prefixlen == 32 or ip.prefixlen == 128 and
+                       if ((ip.prefixlen == 32 or ip.prefixlen == 128) and
                            ipaddress.ip_address(ip.address) in network)]
     return exposed_ips
 
@@ -295,6 +352,16 @@ def delete_bridge_ip_routes(routing_tables, routing_tables_routes,
                     LOG.debug("Route already deleted: {}".format(route))
 
 
+def delete_routes_from_table(table):
+    with pyroute2.NDB() as ndb:
+        # FIXME: problem in pyroute2 removing routes with local (254) scope
+        table_routes = [r for r in ndb.routes.summary()
+                        if r.table == table and r.scope != 254]
+        for route in table_routes:
+            with ndb.routes[route] as r:
+                r.remove()
+
+
 def add_ndp_proxy(ip, dev, vlan=None):
     # FIXME(ltomasbo): This should use pyroute instead but I didn't find
     # out how
@@ -330,7 +397,7 @@ def del_ndp_proxy(ip, dev, vlan=None):
         raise
 
 
-def add_ips_to_dev(nic, ips):
+def add_ips_to_dev(nic, ips, clear_local_route_at_table=False):
     with pyroute2.NDB() as ndb:
         try:
             with ndb.interfaces[nic] as iface:
@@ -343,6 +410,19 @@ def add_ips_to_dev(nic, ips):
             # NDB raises KeyError: 'object exists'
             # if the ip is already added
             pass
+
+    if clear_local_route_at_table:
+        with pyroute2.NDB() as ndb:
+            for ip in ips:
+                route = {'table': clear_local_route_at_table,
+                         'proto':2,
+                         'scope': 254,
+                         'dst': ip}
+                try:
+                    with ndb.routes[route] as r:
+                        r.remove()
+                except (KeyError, ValueError):
+                    LOG.debug("Local route already deleted: {}".format(route))
 
 
 def del_ips_from_dev(nic, ips):
@@ -450,8 +530,23 @@ def del_ip_rule(ip, table, dev=None, lladdr=None):
                               ifindex=network_bridge_if,
                               state=ndmsg.states['permanent'])
 
+def add_unreachable_route(vrf_name):
+    # FIXME: This should use pyroute instead but I didn't find
+    # out how
+    command = ["ip", "route", "add", "vrf", vrf_name, "unreachable",
+               "default", "metric", "4278198272"]
+    try:
+        return processutils.execute(*command, run_as_root=True)
+    except Exception as e:
+        if "RTNETLINK answers: File exists" in e.stderr:
+            return
+        LOG.error("Unable to execute {}. Exception: {}".format(
+                  command, e))
+        raise
 
-def add_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
+
+
+def add_ip_route(ovn_routing_tables_routes, ip_address, route_table, dev,
                   vlan=None, mask=None, via=None):
     net_ip = ip_address
     if not mask:  # default /32 or /128   
@@ -476,7 +571,7 @@ def add_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
             oif = ndb.interfaces[dev]['index']
 
     route = {'dst': net_ip, 'dst_len': int(mask), 'oif': oif,
-             'table': rule_table, 'proto': 3}
+             'table': int(route_table), 'proto': 3}
     if via:
         route['gateway'] = via
         route['scope'] = 0
@@ -493,13 +588,13 @@ def add_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
                 LOG.debug("Route already existing: {}".format(r))
         except KeyError:
             ndb.routes.create(route).commit()
-            LOG.debug("Route created at table {}: {}".format(rule_table,
+            LOG.debug("Route created at table {}: {}".format(route_table,
                                                              route))
     route_info = {'vlan': vlan, 'route': route}
     ovn_routing_tables_routes.setdefault(dev, []).append(route_info)
 
 
-def del_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
+def del_ip_route(ovn_routing_tables_routes, ip_address, route_table, dev,
                   vlan=None, mask=None, via=None):
     net_ip = ip_address
     if not mask:  # default /32 or /128   
@@ -524,7 +619,7 @@ def del_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
             oif = ndb.interfaces[dev]['index']
 
     route = {'dst': net_ip, 'dst_len': int(mask), 'oif': oif,
-             'table': rule_table, 'proto': 3}
+             'table': int(route_table), 'proto': 3}
     if via:
         route['gateway'] = via
         route['scope'] = 0
@@ -537,7 +632,7 @@ def del_ip_route(ovn_routing_tables_routes, ip_address, rule_table, dev,
         try:
             with ndb.routes[route] as r:
                 r.remove()
-            LOG.debug("Route deleted at table {}: {}".format(rule_table,
+            LOG.debug("Route deleted at table {}: {}".format(route_table,
                                                              route))
             route_info = {'vlan': vlan, 'route': route}
             ovn_routing_tables_routes[dev].remove(route_info)

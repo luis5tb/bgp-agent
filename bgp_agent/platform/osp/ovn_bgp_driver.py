@@ -35,7 +35,7 @@ LOG = logging.getLogger(__name__)
 # LOG.setLevel(logging.DEBUG)
 # logging.basicConfig(level=logging.DEBUG)
 
-OVN_TABLES = ("Port_Binding", "Chassis")
+OVN_TABLES = ("Port_Binding", "Chassis", "Datapath_Binding")
 
 
 class OSPOVNBGPDriver(driver_api.AgentDriverBase):
@@ -126,9 +126,9 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
                     'mac': ndb.interfaces[bridge]['address'],
                     'in_port': set([])}
                 # 3) Get in_port for bridge mappings (br-ex, br-ex2)
-                ovs.get_ovs_flows(bridge, flows_info)
+                ovs.get_ovs_flows_info(bridge, flows_info, constants.OVS_RULE_COOKIE)
         # 4) Add/Remove flows for each bridge mappings
-        ovs.remove_extra_ovs_flows(flows_info)
+        ovs.remove_extra_ovs_flows(flows_info, constants.OVS_RULE_COOKIE)
 
         LOG.debug("Syncing current routes.")
         exposed_ips = linux_net.get_exposed_ips(constants.OVN_BGP_NIC)
@@ -243,17 +243,16 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
                 if len(port.mac[0].split(' ')) == 3:
                     port_ips.append(port.mac[0].split(' ')[2])
 
-                ip_version = utils.get_ip_version(router_port_ip)
                 for port_ip in port_ips:
                     # Only adding the port ips that match the lrp
                     # IP version
                     port_ip_version = utils.get_ip_version(port_ip)
-                    if port_ip_version == ip_version:
+                    if port_ip_version == router_port_ip_version:
                         linux_net.add_ips_to_dev(
                             constants.OVN_BGP_NIC, [port_ip])
                         if port_ip in exposed_ips:
                             exposed_ips.remove(port_ip)
-                        if ip_version == constants.IP_VERSION_6:
+                        if router_port_ip_version == constants.IP_VERSION_6:
                             ip_dst = "{}/128".format(port_ip)
                         else:
                             ip_dst = "{}/32".format(port_ip)
@@ -367,7 +366,8 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
                     vlan=vlan_tag)
                 return fip_address
             else:
-                ovs.ensure_bridge_ovs_flows(self.ovn_bridge_mappings.values())
+                ovs.ensure_default_ovs_flows(self.ovn_bridge_mappings.values(),
+                                            constants.OVS_RULE_COOKIE)
 
         # FIP association to VM
         elif row.type == "patch":
@@ -619,7 +619,7 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
                     ports = self.sb_idl.get_ports_on_datapath(
                         network_port_datapath)
                     for port in ports:
-                        if port.type != "":
+                        if port.type != "" and port.type != "virtual":
                             continue
                         try:
                             port_ips = [port.mac[0].split(' ')[1]]
@@ -628,7 +628,6 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
                         if len(port.mac[0].split(' ')) == 3:
                             port_ips.append(port.mac[0].split(' ')[2])
 
-                        ip_version = utils.get_ip_version(ip)
                         for port_ip in port_ips:
                             # Only adding the port ips that match the lrp
                             # IP version
