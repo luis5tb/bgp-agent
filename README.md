@@ -230,7 +230,7 @@ As a python script on the compute nodes:
     debug=True
     reconcile_interval=120
     expose_tenant_networks=True
-    driver=osp_ovn_driver
+    driver=osp_ovn_bgp_driver
 
     $ sudo bgp-agent --config-dir bgp-agent.conf
     Starting BGP Agent...
