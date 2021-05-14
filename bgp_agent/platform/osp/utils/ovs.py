@@ -54,11 +54,11 @@ def get_ovs_flows(bridge, flows_info):
 def remove_extra_ovs_flows(flows_info):
     for bridge, info in flows_info.items():
         for in_port in info.get('in_port'):
-            flow = ("cookie={},priority=1000,ip,in_port={},"
+            flow = ("cookie={},priority=900,ip,in_port={},"
                     "actions=mod_dl_dst:{},NORMAL".format(
                         constants.OVS_RULE_COOKIE, in_port,
                         info['mac']))
-            flow_v6 = ("cookie={},priority=1000,ipv6,in_port={},"
+            flow_v6 = ("cookie={},priority=900,ipv6,in_port={},"
                         "actions=mod_dl_dst:{},NORMAL".format(
                             constants.OVS_RULE_COOKIE, in_port,
                             info['mac']))
@@ -104,10 +104,15 @@ def ensure_bridge_ovs_flows(ovn_bridge_mappings):
             # and in_port
             continue
 
-        flow = ("cookie={},priority=1000,ip,in_port={},"
+        flow = ("cookie={},priority=900,ip,in_port={},"
                 "actions=mod_dl_dst:{},NORMAL".format(
                 constants.OVS_RULE_COOKIE, ovs_ofport, mac))
         ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
+
+        flow_v6 = ("cookie={},priority=900,ipv6,in_port={},"
+                   "actions=mod_dl_dst:{},NORMAL".format(
+                   constants.OVS_RULE_COOKIE, ovs_ofport, mac))
+        ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow_v6])
 
         # Remove unneeded flows
         cookie = ("cookie={}/-1").format(constants.OVS_RULE_COOKIE)
