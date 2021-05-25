@@ -358,11 +358,14 @@ def delete_bridge_ip_routes(routing_tables, routing_tables_routes,
 def delete_routes_from_table(table):
     with pyroute2.NDB() as ndb:
         # FIXME: problem in pyroute2 removing routes with local (254) scope
-        table_routes = [r for r in ndb.routes.summary()
+        table_routes = [r for r in ndb.routes.dump()
                         if r.table == table and r.scope != 254]
         for route in table_routes:
-            with ndb.routes[route] as r:
-                r.remove()
+            try:
+                with ndb.routes[route] as r:
+                    r.remove()
+            except KeyError:
+                LOG.debug("Route already deleted: {}".format(route))
 
 
 def add_ndp_proxy(ip, dev, vlan=None):
