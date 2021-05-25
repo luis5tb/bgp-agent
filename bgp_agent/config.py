@@ -26,7 +26,7 @@ agent_opts = [
                default=True),
     cfg.StrOpt('driver',
                help='Driver to be used',
-               default='osp_ovn_bgp_driver'),
+               default='osp_ovn_evpn_driver'),
     cfg.StrOpt('ovn_sb_private_key',
                default='/etc/pki/tls/private/ovn_controller.key',
                help='The PEM file with private key for SSL connection to '
