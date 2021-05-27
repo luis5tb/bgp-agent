@@ -375,7 +375,8 @@ def delete_routes_from_table(table):
 
 def get_routes_on_tables(table_ids):
     with pyroute2.NDB() as ndb:
-        return [r for r in ndb.routes.summary() if r.table in table_ids]
+        return [r for r in ndb.routes.dump()
+                if r.table in table_ids and r.dst != '']
 
 
 def delete_ip_routes(routes):
@@ -566,16 +567,17 @@ def del_ip_rule(ip, table, dev=None, lladdr=None):
 def add_unreachable_route(vrf_name):
     # FIXME: This should use pyroute instead but I didn't find
     # out how
-    command = ["ip", "route", "add", "vrf", vrf_name, "unreachable",
-               "default", "metric", "4278198272"]
-    try:
-        return processutils.execute(*command, run_as_root=True)
-    except Exception as e:
-        if "RTNETLINK answers: File exists" in e.stderr:
-            return
-        LOG.error("Unable to execute {}. Exception: {}".format(
-                  command, e))
-        raise
+    for ip_version in [-4, -6]:
+        command = ["ip", ip_version, "route", "add", "vrf", vrf_name,
+                   "unreachable", "default", "metric", "4278198272"]
+        try:
+            return processutils.execute(*command, run_as_root=True)
+        except Exception as e:
+            if "RTNETLINK answers: File exists" in e.stderr:
+                continue
+            LOG.error("Unable to execute {}. Exception: {}".format(
+                      command, e))
+            raise
 
 
 def add_ip_route(ovn_routing_tables_routes, ip_address, route_table, dev,
