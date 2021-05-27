@@ -14,7 +14,6 @@
 
 import collections
 import ipaddress
-import pyroute2
 
 from oslo_concurrency import lockutils
 from oslo_config import cfg
@@ -618,46 +617,35 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
 
     def _remove_extra_routes(self):
         table_ids = self._get_table_ids()
-        with pyroute2.NDB() as ndb:
-            vrf_routes = set([r for r in ndb.routes.summary()
-                              if r.table in table_ids])
-            if not vrf_routes:
-                return
-            for bridge, routes_info in self._ovn_routing_tables_routes.items():
-                for route_info in routes_info:
-                    oif = ndb.interfaces[bridge]['index']
-                    if route_info['vlan']:
-                        vlan_device_name = '{}.{}'.format(bridge,
-                                                          route_info['vlan'])
-                        oif = ndb.interfaces[vlan_device_name]['index']
-                    if 'gateway' in route_info['route'].keys():  # subnet route
-                        possible_matchings = [
-                            r for r in vrf_routes
-                            if (r['dst'] == route_info['route']['dst'] and
-                                r['dst_len'] == route_info['route']['dst_len'] and
-                                r['gateway'] == route_info['route']['gateway'] and
-                                r['table'] == route_info['route']['table'])]
-                    else:  # cr-lrp
-                        possible_matchings = [
-                            r for r in vrf_routes
-                            if (r['dst'] == route_info['route']['dst'] and
-                                r['dst_len'] == route_info['route']['dst_len'] and
-                                r['oif'] == oif and
-                                r['table'] == route_info['route']['table'])]
-                    for r in possible_matchings:
-                        vrf_routes.remove(r)
-            for route in vrf_routes:
-                r_info = {'dst': route['dst'],
-                          'dst_len': route['dst_len'],
-                          'family': route['family'],
-                          'oif': route['oif'],
-                          'gateway': route['gateway'],
-                          'table': route['table']}
-                try:
-                    with ndb.routes[r_info] as r:
-                        r.remove()
-                except KeyError:
-                    LOG.debug("Route already deleted: {}".format(route))
+        vrf_routes = linux_net.get_routes_on_tables(table_ids)
+        if not vrf_routes:
+            return
+        # remove from vrf_routes the routes that should be kept
+        for bridge, routes_info in self._ovn_routing_tables_routes.items():
+            for route_info in routes_info:
+                oif = linux_net.get_interface_index(bridge)
+                if route_info['vlan']:
+                    vlan_device_name = '{}.{}'.format(bridge,
+                                                      route_info['vlan'])
+                    oif = linux_net.get_interface_index(vlan_device_name)
+                if 'gateway' in route_info['route'].keys():  # subnet route
+                    possible_matchings = [
+                        r for r in vrf_routes
+                        if (r['dst'] == route_info['route']['dst'] and
+                            r['dst_len'] == route_info['route']['dst_len'] and
+                            r['gateway'] == route_info['route']['gateway'] and
+                            r['table'] == route_info['route']['table'])]
+                else:  # cr-lrp
+                    possible_matchings = [
+                        r for r in vrf_routes
+                        if (r['dst'] == route_info['route']['dst'] and
+                            r['dst_len'] == route_info['route']['dst_len'] and
+                            r['oif'] == oif and
+                            r['table'] == route_info['route']['table'])]
+                for r in possible_matchings:
+                    vrf_routes.remove(r)
+
+        linux_net.delete_ip_routes(vrf_routes)
 
     def _remove_extra_ovs_flows(self):
         cr_lrp_mac_vrf_mappings = self._get_cr_lrp_mac_vrf_mapping()

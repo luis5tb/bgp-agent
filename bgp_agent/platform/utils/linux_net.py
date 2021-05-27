@@ -36,6 +36,11 @@ def get_interfaces():
         return [iface.ifname for iface in ndb.interfaces]
 
 
+def get_interface_index(nic):
+    with pyroute2.NDB() as ndb:
+        return ndb.interfaces[nic]['index']
+
+
 def ensure_vrf(vrf_name, vrf_table):
     with pyroute2.NDB() as ndb:
         try:
@@ -363,6 +368,27 @@ def delete_routes_from_table(table):
         for route in table_routes:
             try:
                 with ndb.routes[route] as r:
+                    r.remove()
+            except KeyError:
+                LOG.debug("Route already deleted: {}".format(route))
+
+
+def get_routes_on_tables(table_ids):
+    with pyroute2.NDB() as ndb:
+        return [r for r in ndb.routes.summary() if r.table in table_ids]
+
+
+def delete_ip_routes(routes):
+    with pyroute2.NDB() as ndb:
+        for route in routes:
+            r_info = {'dst': route['dst'],
+                      'dst_len': route['dst_len'],
+                      'family': route['family'],
+                      'oif': route['oif'],
+                      'gateway': route['gateway'],
+                      'table': route['table']}
+            try:
+                with ndb.routes[r_info] as r:
                     r.remove()
             except KeyError:
                 LOG.debug("Route already deleted: {}".format(route))
