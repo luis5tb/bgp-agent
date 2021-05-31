@@ -149,8 +149,8 @@ def ensure_routing_table_for_bridge(ovn_routing_tables, bridge):
     extra_routes = []
 
     with pyroute2.NDB() as ndb:
-        table_route_dsts = set([r.dst for r in ndb.routes.summary()
-                                if r.table == ovn_routing_tables[bridge]])
+        table_route_dsts = set([r.dst for r in ndb.routes.summary().filter(
+                                   table=ovn_routing_tables[bridge])])
         if not table_route_dsts:
             ndb.routes.create(dst='default',
                               oif=ndb.interfaces[bridge]['index'],
@@ -259,8 +259,8 @@ def get_nic_ip(nic, ip_version):
     exposed_ips = []
     with pyroute2.NDB() as ndb:
         exposed_ips = [ip.address
-                       for ip in ndb.interfaces[nic].ipaddr.summary()
-                       if ip.prefixlen == prefix]
+                       for ip in ndb.interfaces[nic].ipaddr.summary().filter(
+                           prefixlen=prefix)]
     return exposed_ips
 
 
@@ -363,8 +363,8 @@ def delete_bridge_ip_routes(routing_tables, routing_tables_routes,
 def delete_routes_from_table(table):
     with pyroute2.NDB() as ndb:
         # FIXME: problem in pyroute2 removing routes with local (254) scope
-        table_routes = [r for r in ndb.routes.dump()
-                        if r.table == table and r.scope != 254]
+        table_routes = [r for r in ndb.routes.dump().filter(table=table)
+                        if r.scope != 254]
         for route in table_routes:
             try:
                 with ndb.routes[route] as r:

@@ -262,14 +262,14 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
 
         datapath_bridge, vlan_tag = self._get_bridge_for_datapath(
             cr_lrp_datapath)
-        self._connect_evpn_to_ovn(vrf, ips, datapath_bridge, evpn_info['vni'],
-                                  vlan_tag)
 
         ips_without_mask = [ip.split("/")[0] for ip in ips]
-        linux_net.add_ips_to_dev(lo, ips_without_mask,
-                                 clear_local_route_at_table=evpn_info['vni'])
+        linux_net.add_ips_to_dev(lo, ips_without_mask)
         self._ovn_exposed_evpn_ips.setdefault(
                          lo, []).extend(ips_without_mask)
+
+        self._connect_evpn_to_ovn(vrf, ips, datapath_bridge, evpn_info['vni'],
+                                  vlan_tag)
 
         # Check if there are networks attached to the router,
         # and if so, add the needed routes/rules
