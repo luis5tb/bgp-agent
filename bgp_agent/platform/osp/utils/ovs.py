@@ -84,10 +84,6 @@ def remove_extra_ovs_flows(flows_info, cookie):
 
 
 def ensure_evpn_ovs_flow(bridge, cookie, mac, port, net):
-    b_mac = None
-    with pyroute2.NDB().interfaces[bridge] as iface:
-        b_mac = iface['address']
-
     ovs_port = None
     ovs_ports = ovs_cmd('ovs-vsctl', ['list-ports', bridge])[0].rstrip()
     for p in ovs_ports.split('\n'):
@@ -104,13 +100,19 @@ def ensure_evpn_ovs_flow(bridge, cookie, mac, port, net):
 
     ip_version = utils.get_ip_version(net)
     if ip_version == constants.IP_VERSION_6:
-        flow = ("cookie={},priority=1000,ipv6,in_port={},dl_src:{},ipv6_src={}"
+        with pyroute2.NDB() as ndb:
+            flow = (
+                "cookie={},priority=1000,ipv6,in_port={},dl_src:{},ipv6_src={}"
                 "actions=mod_dl_dst:{},output={}".format(
-                    cookie, ovs_ofport, mac, net, b_mac, vrf_ofport))
+                    cookie, ovs_ofport, mac, net,
+                    ndb.interfaces[bridge]['address'], vrf_ofport))
     else:
-        flow = ("cookie={},priority=1000,ip,in_port={},dl_src:{},nw_src={}"
+        with pyroute2.NDB() as ndb:
+            flow = (
+                "cookie={},priority=1000,ip,in_port={},dl_src:{},nw_src={}"
                 "actions=mod_dl_dst:{},output={}".format(
-                    cookie, ovs_ofport, mac, net, b_mac, vrf_ofport))
+                    cookie, ovs_ofport, mac, net,
+                    ndb.interfaces[bridge]['address'], vrf_ofport))
     ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
 
 
@@ -164,9 +166,6 @@ def remove_evpn_network_ovs_flow(bridge, cookie, mac, net):
 def ensure_default_ovs_flows(ovn_bridge_mappings, cookie):
     cookie_id = ("cookie={}/-1").format(cookie)
     for bridge in ovn_bridge_mappings:
-        mac = None
-        with pyroute2.NDB().interfaces[bridge] as iface:
-            mac = iface['address']
         ovs_port = ovs_cmd('ovs-vsctl', ['list-ports', bridge])[0].rstrip()
         if not ovs_port:
             continue
@@ -182,14 +181,16 @@ def ensure_default_ovs_flows(ovn_bridge_mappings, cookie):
             # and in_port
             continue
 
-        flow = ("cookie={},priority=900,ip,in_port={},"
-                "actions=mod_dl_dst:{},NORMAL".format(
-                    cookie, ovs_ofport, mac))
+        with pyroute2.NDB() as ndb:
+            flow = ("cookie={},priority=900,ip,in_port={},"
+                    "actions=mod_dl_dst:{},NORMAL".format(
+                        cookie, ovs_ofport,
+                        ndb.interfaces[bridge]['address']))
+            flow_v6 = ("cookie={},priority=900,ipv6,in_port={},"
+                       "actions=mod_dl_dst:{},NORMAL".format(
+                           cookie, ovs_ofport,
+                           ndb.interfaces[bridge]['address']))
         ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
-
-        flow_v6 = ("cookie={},priority=900,ipv6,in_port={},"
-                   "actions=mod_dl_dst:{},NORMAL".format(
-                       cookie, ovs_ofport, mac))
         ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow_v6])
 
         # Remove unneeded flows
