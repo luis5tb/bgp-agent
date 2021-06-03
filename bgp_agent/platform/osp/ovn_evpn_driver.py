@@ -458,8 +458,8 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
     @lockutils.synchronized('evpn')
     def withdraw_subnet(self, row):
         lrp_logical_port = 'lrp-' + row.logical_port
-        lrp_datapath = self.ovn_local_lrps[lrp_logical_port].get('datapath')
-        ip = self.ovn_local_lrps[lrp_logical_port].get('ip')
+        lrp_datapath = self.ovn_local_lrps.get(lrp_logical_port, {}).get('datapath')
+        ip = self.ovn_local_lrps.get(lrp_logical_port, {}).get('ip')
         if not lrp_datapath:
             return
 
