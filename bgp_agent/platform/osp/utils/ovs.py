@@ -206,8 +206,12 @@ def ensure_default_ovs_flows(ovn_bridge_mappings, cookie):
             ovs_cmd('ovs-ofctl', ['del-flows', bridge, del_flow])
 
 
-def add_device_to_ovs_bridge(device, bridge):
-    ovs_cmd('ovs-vsctl', ['--may-exist', 'add-port', bridge, device])
+def add_device_to_ovs_bridge(device, bridge, vlan_tag=None):
+    if vlan_tag:
+        tag = "tag={}".format(vlan_tag)
+        ovs_cmd('ovs-vsctl', ['--may-exist', 'add-port', bridge, device, tag])
+    else:
+        ovs_cmd('ovs-vsctl', ['--may-exist', 'add-port', bridge, device])
 
 
 def del_device_from_ovs_bridge(device, bridge=None):

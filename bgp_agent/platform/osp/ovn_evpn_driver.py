@@ -138,7 +138,6 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                     router_ip,
                     gateway['vni'],
                     datapath_bridge,
-                    vlan=vlan_tag,
                     mask=router_port_ip.split("/")[1],
                     via=gateway_ip)
                 break
@@ -409,7 +408,6 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                     ip.split("/")[0],
                     evpn_info['vni'],
                     datapath_bridge,
-                    vlan=vlan_tag,
                     mask=ip.split("/")[1],
                     via=cr_lrp_ip)
                 break
@@ -490,7 +488,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                     ip.split("/")[0],
                     cr_lrp_info['vni'],
                     datapath_bridge,
-                    vlan=vlan_tag,
+
                     mask=ip.split("/")[1],
                     via=cr_lrp_ip)
                 if utils.get_ip_version(cr_lrp_ip) == constants.IP_VERSION_6:
@@ -560,19 +558,19 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
 
     def _connect_evpn_to_ovn(self, vrf, ips, datapath_bridge, vni, vlan_tag):
         # add vrf to ovs bridge
-        ovs.add_device_to_ovs_bridge(vrf, datapath_bridge)
+        ovs.add_device_to_ovs_bridge(vrf, datapath_bridge, vlan_tag)
 
         # add route for ip to ovs provider bridge (at the vrf routing table)
         for ip in ips:
             ip_without_mask = ip.split("/")[0]
             linux_net.add_ip_route(
                 self._ovn_routing_tables_routes, ip_without_mask,
-                vni, datapath_bridge, vlan=vlan_tag)
+                vni, datapath_bridge)
 
             # add proxy ndp config for ipv6
             if (utils.get_ip_version(ip_without_mask) ==
                     constants.IP_VERSION_6):
-                linux_net.add_ndp_proxy(ip, datapath_bridge, vlan_tag)
+                linux_net.add_ndp_proxy(ip, datapath_bridge)
 
         # add unreachable route to vrf
         linux_net.add_unreachable_route(vrf)
