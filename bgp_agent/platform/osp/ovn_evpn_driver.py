@@ -21,6 +21,7 @@ from oslo_log import log as logging
 
 from bgp_agent import constants
 from bgp_agent.platform import driver_api
+from bgp_agent.platform.osp.utils import frr
 from bgp_agent.platform.osp.utils import ovs
 from bgp_agent.platform.osp.utils import ovn
 from bgp_agent.platform.utils import linux_net
@@ -257,7 +258,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
             'vrf': vrf
         }
 
-        self._reconfigure_FRR(evpn_info)
+        frr.frr_reconfigure(evpn_info, action="add-vrf")
 
         datapath_bridge, vlan_tag = self._get_bridge_for_datapath(
             cr_lrp_datapath)
@@ -322,7 +323,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                                          cr_lrp_info.get('mac'))
 
         evpn_info = {'vni': evpn_vni, 'rt': cr_lrp_info.get('rt')}
-        self._reconfigure_FRR(evpn_info)
+        frr.frr_reconfigure(evpn_info, action="del-vrf")
 
         try:
             del self.ovn_local_cr_lrps[cr_lrp_port_name]
@@ -581,11 +582,6 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
         ovs.del_device_from_ovs_bridge(vrf, datapath_bridge)
 
         linux_net.delete_routes_from_table(vni)
-
-    def _reconfigure_FRR(self, evpn_info):
-        # TO DO
-        LOG.info("FRR CONFIGURATION AUTOMATION NEEDED. "
-                 "FOR MANUAL TESTING ADD FRR CONFIG FOR: {}", evpn_info)
 
     def _remove_extra_vrfs(self):
         vrfs, los, bridges, vxlans = ([], [], [], [])

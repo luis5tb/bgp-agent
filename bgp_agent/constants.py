@@ -21,6 +21,8 @@ OVS_CONNECTION_STRING = "unix:/var/run/openvswitch/db.sock"
 OVS_RULE_COOKIE = "999"
 OVS_VRF_RULE_COOKIE = "998"
 
+FRR_SOCKET_PATH = "/run/frr/"
+
 IP_VERSION_6 = 6
 IP_VERSION_4 = 4
 
