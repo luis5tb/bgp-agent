@@ -258,7 +258,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
             'vrf': vrf
         }
 
-        frr.frr_reconfigure(evpn_info, action="add-vrf")
+        frr.vrf_reconfigure(evpn_info, action="add-vrf")
 
         datapath_bridge, vlan_tag = self._get_bridge_for_datapath(
             cr_lrp_datapath)
@@ -323,7 +323,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                                          cr_lrp_info.get('mac'))
 
         evpn_info = {'vni': evpn_vni, 'rt': cr_lrp_info.get('rt')}
-        frr.frr_reconfigure(evpn_info, action="del-vrf")
+        frr.vrf_reconfigure(evpn_info, action="del-vrf")
 
         try:
             del self.ovn_local_cr_lrps[cr_lrp_port_name]
@@ -457,7 +457,8 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
     @lockutils.synchronized('evpn')
     def withdraw_subnet(self, row):
         lrp_logical_port = 'lrp-' + row.logical_port
-        lrp_datapath = self.ovn_local_lrps.get(lrp_logical_port, {}).get('datapath')
+        lrp_datapath = self.ovn_local_lrps.get(lrp_logical_port, {}).get(
+            'datapath')
         ip = self.ovn_local_lrps.get(lrp_logical_port, {}).get('ip')
         if not lrp_datapath:
             return

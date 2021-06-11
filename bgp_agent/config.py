@@ -22,8 +22,8 @@ agent_opts = [
                help='Time between re-sync actions.',
                default=120),
     cfg.BoolOpt('expose_tenant_networks',
-               help='Expose VM IPs on tenant networks',
-               default=True),
+                help='Expose VM IPs on tenant networks',
+                default=True),
     cfg.StrOpt('driver',
                help='Driver to be used',
                default='osp_ovn_bgp_driver'),
@@ -39,6 +39,10 @@ agent_opts = [
                default='/etc/ipa/ca.crt',
                help='The PEM file with CA certificate that OVN should use to'
                     ' verify certificates presented to it by SSL peers'),
+    cfg.StrOpt('bgp_AS',
+               default='64999',
+               help='AS number to be used by the Agent when running in BGP '
+                    'mode and configuring the VRF route leaking.'),
 ]
 
 CONF = cfg.CONF

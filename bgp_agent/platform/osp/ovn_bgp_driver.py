@@ -22,6 +22,7 @@ from oslo_log import log as logging
 
 from bgp_agent import constants
 from bgp_agent.platform import driver_api
+from bgp_agent.platform.osp.utils import frr
 from bgp_agent.platform.osp.utils import ovs
 from bgp_agent.platform.osp.utils import ovn
 from bgp_agent.platform.utils import linux_net
@@ -67,6 +68,11 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
             events=events)
 
     def start(self):
+        # Ensure FRR is configure to leak the routes
+        # NOTE: If we want to recheck this every X time, we should move it
+        # inside the sync function instead
+        frr.vrf_leak(constants.OVN_BGP_VRF, CONF.bgp_AS)
+
         # start the subscriptions to the OSP events. This ensures the watcher
         # calls the relevant driver methods upon registered events
         self.sb_idl = self._sb_idl.start()

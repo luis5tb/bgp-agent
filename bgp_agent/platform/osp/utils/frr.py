@@ -23,16 +23,20 @@ LOG = logging.getLogger(__name__)
 
 ADD_VRF_TEMPLATE = '''
 vrf {{ vrf_name }}
-  vni {{ vni }}                      
- 
+  vni {{ vni }}
+
 router bgp {{ rt }} vrf {{ vrf_name }}
   address-family ipv4 unicast
-    redistribute connected        
-  exit-address-family                              
+    redistribute connected
+  exit-address-family
+  address-family ipv6 unicast
+    redistribute connected
+  exit-address-family
   address-family l2vpn evpn
     advertise ipv4 unicast
-  exit-address-family  
-  
+    advertise ipv6 unicast
+  exit-address-family
+
 '''
 
 DEL_VRF_TEMPLATE = '''
@@ -41,8 +45,52 @@ no router bgp {{ rt }} vrf {{ vrf_name }}
 
 '''
 
+LEAK_VRF_TEMPLATE = '''
+router bgp {{ rt }}
+  address-family ipv4 unicast
+    import vrf {{ vrf_name }}
+  exit-address-family
 
-def frr_reconfigure(evpn_info, action):
+  address-family ipv6 unicast
+    import vrf {{ vrf_name }}
+  exit-address-family
+
+router bgp {{ rt }} vrf {{ vrf_name }}
+  address-family ipv4 unicast
+    redistribute connected
+  exit-address-family
+
+  address-family ipv6 unicast
+    redistribute connected
+  exit-address-family
+
+'''
+
+
+def _run_vtysh_config(frr_config_file):
+    vtysh_command = "copy {} running-config".format(frr_config_file)
+    full_args = ['/usr/bin/vtysh', '--vty_socket', constants.FRR_SOCKET_PATH,
+                 '-c', vtysh_command]
+    try:
+        return processutils.execute(*full_args, run_as_root=True)
+    except Exception as e:
+        print("Unable to execute vtysh with {}. Exception: {}".format(
+            full_args, e))
+        raise
+
+
+def vrf_leak(vrf, rt):
+    LOG.info("Add VRF leak for VRF {} on router bgp {}".format(vrf, rt))
+    vrf_template = Template(LEAK_VRF_TEMPLATE)
+    vrf_config = vrf_template.render(vrf_name=vrf, rt=rt)
+    frr_config_file = "frr-config-vrf-leak-{}".format(vrf)
+    with open(frr_config_file, 'w') as vrf_config_file:
+        vrf_config_file.write(vrf_config)
+
+    _run_vtysh_config(frr_config_file)
+
+
+def vrf_reconfigure(evpn_info, action):
     LOG.info("FRR reconfiguration (action = {}) for evpn: {}".format(
              action, evpn_info))
     frr_config_file = None
@@ -66,12 +114,5 @@ def frr_reconfigure(evpn_info, action):
         return
     with open(frr_config_file, 'w') as vrf_config_file:
         vrf_config_file.write(vrf_config)
-    vtysh_command = "copy {} running-config".format(frr_config_file)
-    full_args = ['/usr/bin/vtysh', '--vty_socket', constants.FRR_SOCKET_PATH,
-                 '-c', vtysh_command]
-    try:
-        return processutils.execute(*full_args, run_as_root=True)
-    except Exception as e:
-        print("Unable to execute vtysh with {}. Exception: {}".format(
-            full_args, e))
-        raise
+
+    _run_vtysh_config(frr_config_file)
