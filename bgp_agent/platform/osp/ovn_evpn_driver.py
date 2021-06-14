@@ -395,6 +395,14 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
             LOG.info("Subnet not connected to the provider network. "
                      "No need to expose it through EVPN")
             return
+        if (evpn_info['rt'] != cr_lrp_info.get('rt') or
+                evpn_info['vni'] != cr_lrp_info.get('vni')):
+            LOG.error("EVPN information at router port (vni: {}, rt {}) does "
+                      "not match with information at subnet gateway port:"
+                      " {}".format(cr_lrp_info.get('vni'),
+                                   cr_lrp_info.get('rt'),
+                                   evpn_info))
+            return
 
         cr_lrp_ips = [ip_address.split('/')[0]
                       for ip_address in cr_lrp_info.get('ips', [])]
