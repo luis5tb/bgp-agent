@@ -239,8 +239,8 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                       "Not exposing it.".format(ips))
             return
 
-        LOG.info("Adding BGP route for CR-LRP Port {} on RT {} and "
-                 "VNI {}".format(ips, evpn_info['rt'], evpn_info['vni']))
+        LOG.info("Adding BGP route for CR-LRP Port {} on AS {} and "
+                 "VNI {}".format(ips, evpn_info['bgp_as'], evpn_info['vni']))
         vrf, lo, bridge, vxlan = self._ensure_evpn_devices(evpn_info['vni'])
         if not vrf or not lo:
             return
@@ -251,7 +251,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
             'ips': ips,
             'mac': cr_lrp_port.mac[0].split(' ')[0],
             'vni': int(evpn_info['vni']),
-            'rt': evpn_info['rt'],
+            'bgp_as': evpn_info['bgp_as'],
             'lo': lo,
             'bridge': bridge,
             'vxlan': vxlan,
@@ -322,7 +322,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                                          constants.OVS_VRF_RULE_COOKIE,
                                          cr_lrp_info.get('mac'))
 
-        evpn_info = {'vni': evpn_vni, 'rt': cr_lrp_info.get('rt')}
+        evpn_info = {'vni': evpn_vni, 'bgp_as': cr_lrp_info.get('bgp_as')}
         frr.vrf_reconfigure(evpn_info, action="del-vrf")
 
         try:
@@ -395,12 +395,12 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
             LOG.info("Subnet not connected to the provider network. "
                      "No need to expose it through EVPN")
             return
-        if (evpn_info['rt'] != cr_lrp_info.get('rt') or
+        if (evpn_info['bgp_as'] != cr_lrp_info.get('bgp_as') or
                 evpn_info['vni'] != cr_lrp_info.get('vni')):
-            LOG.error("EVPN information at router port (vni: {}, rt {}) does "
-                      "not match with information at subnet gateway port:"
+            LOG.error("EVPN information at router port (vni: {}, as: {}) does"
+                      " not match with information at subnet gateway port:"
                       " {}".format(cr_lrp_info.get('vni'),
-                                   cr_lrp_info.get('rt'),
+                                   cr_lrp_info.get('bgp_as'),
                                    evpn_info))
             return
 

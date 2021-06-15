@@ -25,7 +25,7 @@ ADD_VRF_TEMPLATE = '''
 vrf {{ vrf_name }}
   vni {{ vni }}
 
-router bgp {{ rt }} vrf {{ vrf_name }}
+router bgp {{ bgp_as }} vrf {{ vrf_name }}
   address-family ipv4 unicast
     redistribute connected
   exit-address-family
@@ -41,12 +41,12 @@ router bgp {{ rt }} vrf {{ vrf_name }}
 
 DEL_VRF_TEMPLATE = '''
 no vrf {{ vrf_name }}
-no router bgp {{ rt }} vrf {{ vrf_name }}
+no router bgp {{ bgp_as }} vrf {{ vrf_name }}
 
 '''
 
 LEAK_VRF_TEMPLATE = '''
-router bgp {{ rt }}
+router bgp {{ bgp_as }}
   address-family ipv4 unicast
     import vrf {{ vrf_name }}
   exit-address-family
@@ -55,7 +55,7 @@ router bgp {{ rt }}
     import vrf {{ vrf_name }}
   exit-address-family
 
-router bgp {{ rt }} vrf {{ vrf_name }}
+router bgp {{ bgp_as }} vrf {{ vrf_name }}
   address-family ipv4 unicast
     redistribute connected
   exit-address-family
@@ -79,10 +79,10 @@ def _run_vtysh_config(frr_config_file):
         raise
 
 
-def vrf_leak(vrf, rt):
-    LOG.info("Add VRF leak for VRF {} on router bgp {}".format(vrf, rt))
+def vrf_leak(vrf, bgp_as):
+    LOG.info("Add VRF leak for VRF {} on router bgp {}".format(vrf, bgp_as))
     vrf_template = Template(LEAK_VRF_TEMPLATE)
-    vrf_config = vrf_template.render(vrf_name=vrf, rt=rt)
+    vrf_config = vrf_template.render(vrf_name=vrf, bgp_as=bgp_as)
     frr_config_file = "frr-config-vrf-leak-{}".format(vrf)
     with open(frr_config_file, 'w') as vrf_config_file:
         vrf_config_file.write(vrf_config)
@@ -99,7 +99,7 @@ def vrf_reconfigure(evpn_info, action):
         vrf_config = vrf_template.render(
             vrf_name="{}{}".format(constants.OVN_EVPN_VRF_PREFIX,
                                    evpn_info['vni']),
-            rt=evpn_info['rt'],
+            bgp_as=evpn_info['bgp_as'],
             vni=evpn_info['vni'])
         frr_config_file = "frr-config-add-vrf-{}".format(evpn_info['vni'])
     elif action == "del-vrf":
@@ -107,7 +107,7 @@ def vrf_reconfigure(evpn_info, action):
         vrf_config = vrf_template.render(
             vrf_name="{}{}".format(constants.OVN_EVPN_VRF_PREFIX,
                                    evpn_info['vni']),
-            rt=evpn_info['rt'])
+            bgp_as=evpn_info['bgp_as'])
         frr_config_file = "frr-config-del-vrf-{}".format(evpn_info['vni'])
     else:
         LOG.error("Unknown FRR reconfiguration action: %s", action)

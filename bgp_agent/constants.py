@@ -30,7 +30,7 @@ BGP_MODE='BGP'
 EVPN_MODE='EVPN'
 
 OVN_EVPN_VNI_EXT_ID_KEY = 'neutron_bgpvpn:vni'
-OVN_EVPN_RT_EXT_ID_KEY = 'neutron_bgpvpn:rt'
+OVN_EVPN_AS_EXT_ID_KEY = 'neutron_bgpvpn:as'
 OVN_EVPN_VRF_PREFIX = "vrf-"
 OVN_EVPN_BRIDGE_PREFIX = "br-"
 OVN_EVPN_VXLAN_PREFIX = "vxlan-"

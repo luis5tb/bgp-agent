@@ -35,9 +35,9 @@ at the moment. There are two different drivers for OpenStack:
   to `True`. The code is on the driver file `ovn_bgp_driver.py`, and the watcher
   that it uses is `bgp_watcher.py`.
 - osp_ovn_evpn_driver: this driver exposes through EVPN the IPs of the VMs on the
-  tenant networks, based on the provider information related to the `RT` and `VNI`
-  to use for the EVPN. The code is on the driver file `ovn_evpn_driver.py`, and
-  the watcher that it uses is `evpn_watcher.py`.
+  tenant networks, based on the provider information related to the `BGP_AS` and
+  `VNI` to use for the EVPN. The code is on the driver file `ovn_evpn_driver.py`,
+  and the watcher that it uses is `evpn_watcher.py`.
 
 ## How it works: OpenStack BGP case
 
@@ -260,7 +260,7 @@ connected to the local chassis (i.e., local hypervisor) gets its IP advertised
 through the proper EVPN if:
 
 - VM is on a network that is tagged to be exposed through EVPN (i.e., with the
-  proper RT and VNI information) and the router the network is connected too
+  proper BGP_AS and VNI information) and the router the network is connected too
   also has that tag.
 
 The way the agent advertises the VMs is by creating a VRF associated to the
@@ -320,7 +320,7 @@ OVN table:
 Detects when a port of type “chassisredirect” gets attached to an OVN
 chassis. This is the case for the neutron gateway router ports (CR-LRPs).
 In this case the ip is added to the dummy device associated to the VRF
-if that port has VNI/RT information tagged. Also the ip route is added
+if that port has VNI/BGP_AS information tagged. Also the ip route is added
 to the VRF routing table pointing to the OVS provider bridge if the destination
 IP is the CR-LRP one. If there are networks attached to the router, and they are
 also exposed, then extra routes and ovs-flows (as explained above) are created
@@ -329,7 +329,7 @@ too. These events call the driver_api `expose_IP` and `withdraw_IP`.
 a patch port (whose peer is the “LRP” patch port) gets created or deleted.
 This means a subnet is attached to a router. If the chassis is the one having
 the CR-LRP port for that router where the port is getting created, as the
-port has VNI/RF information tagged, then the event is processed by the agent
+port has VNI/BGP_AS information tagged, then the event is processed by the agent
 and the ip routes related to the subnet CIDR are added on the respective VRF
 routing table. In addition extra ovs flows are added to the OVN provider bridge
 to ensure traffic differentiation between different subnets. These events

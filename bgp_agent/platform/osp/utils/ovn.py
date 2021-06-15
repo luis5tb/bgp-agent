@@ -231,8 +231,8 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
             evpn_info = {
                 'vni': int(port.external_ids[
                     constants.OVN_EVPN_VNI_EXT_ID_KEY]),
-                'rt': int(port.external_ids[
-                    constants.OVN_EVPN_RT_EXT_ID_KEY])}
+                'bgp_as': int(port.external_ids[
+                    constants.OVN_EVPN_AS_EXT_ID_KEY])}
         except KeyError:
             return {}
         return evpn_info
