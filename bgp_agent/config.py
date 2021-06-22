@@ -23,7 +23,7 @@ agent_opts = [
                default=120),
     cfg.BoolOpt('expose_tenant_networks',
                 help='Expose VM IPs on tenant networks',
-                default=True),
+                default=False),
     cfg.StrOpt('driver',
                help='Driver to be used',
                default='osp_ovn_bgp_driver'),
