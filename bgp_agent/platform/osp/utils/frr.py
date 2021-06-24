@@ -24,6 +24,7 @@ LOG = logging.getLogger(__name__)
 ADD_VRF_TEMPLATE = '''
 vrf {{ vrf_name }}
   vni {{ vni }}
+exit-vrf
 
 router bgp {{ bgp_as }} vrf {{ vrf_name }}
   address-family ipv4 unicast
