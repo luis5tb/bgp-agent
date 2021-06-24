@@ -98,12 +98,16 @@ class SubnetRouterAttachedEvent(PortBindingChassisEvent):
                 return (not row.chassis and
                         not row.logical_port.startswith('lrp-') and
                         row.external_ids[constants.OVN_EVPN_VNI_EXT_ID_KEY] and
-                        not old.external_ids.get(
-                            constants.OVN_EVPN_VNI_EXT_ID_KEY))
+                        row.external_ids[constants.OVN_EVPN_AS_EXT_ID_KEY] and
+                        (not old.external_ids.get(
+                            constants.OVN_EVPN_VNI_EXT_ID_KEY) or
+                         not old.external_ids.get(
+                             constants.constants.OVN_EVPN_AS_EXT_ID_KEY)))
             else:
                 return (not row.chassis and
                         not row.logical_port.startswith('lrp-') and
-                        row.external_ids[constants.OVN_EVPN_VNI_EXT_ID_KEY])
+                        row.external_ids[constants.OVN_EVPN_VNI_EXT_ID_KEY] and
+                        row.external_ids[constants.OVN_EVPN_AS_EXT_ID_KEY])
         except (IndexError, AttributeError):
             return False
 
@@ -129,12 +133,16 @@ class SubnetRouterDetachedEvent(PortBindingChassisEvent):
                 return (not row.chassis and
                         not row.logical_port.startswith('lrp-') and
                         old.external_ids[constants.OVN_EVPN_VNI_EXT_ID_KEY] and
-                        not row.external_ids.get(
-                            constants.OVN_EVPN_VNI_EXT_ID_KEY))
+                        old.external_ids[constants.OVN_EVPN_AS_EXT_ID_KEY] and
+                        (not row.external_ids.get(
+                            constants.OVN_EVPN_VNI_EXT_ID_KEY) or
+                         not row.external_ids.get(
+                             constants.OVN_EVPN_AS_EXT_ID_KEY)))
             else:
                 return (not row.chassis and
                         not row.logical_port.startswith('lrp-') and
-                        row.external_ids[constants.OVN_EVPN_VNI_EXT_ID_KEY])
+                        row.external_ids[constants.OVN_EVPN_VNI_EXT_ID_KEY] and
+                        row.external_ids[constants.OVN_EVPN_AS_EXT_ID_KEY])
         except (IndexError, AttributeError):
             return False
 
