@@ -233,6 +233,12 @@ def ensure_vlan_device_for_network(bridge, vlan_tag):
     _set_kernel_flag(ipv6_flag, 1)
 
 
+def delete_vlan_device_for_network(bridge, vlan_tag):
+    vlan_tag = vlan_tag[0]
+    vlan_device_name = '{}.{}'.format(bridge, vlan_tag)
+    delete_device(vlan_device_name)
+
+
 def _set_kernel_flag(flag, value):
     command = ["sysctl", "-w", "{}={}".format(flag, value)]
     try:

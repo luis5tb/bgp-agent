@@ -139,6 +139,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                     router_ip,
                     gateway['vni'],
                     datapath_bridge,
+                    vlan=vlan_tag,
                     mask=router_port_ip.split("/")[1],
                     via=gateway_ip)
                 break
@@ -150,11 +151,15 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
             net_ip = '{}'.format(ipaddress.IPv4Network(
                 router_port_ip, strict=False))
 
+        strip_vlan = False
+        if vlan_tag:
+            strip_vlan = True
         ovs.ensure_evpn_ovs_flow(datapath_bridge,
                                  constants.OVS_VRF_RULE_COOKIE,
                                  gateway['mac'],
                                  gateway['vrf'],
-                                 net_ip)
+                                 net_ip,
+                                 strip_vlan)
 
         network_port_datapath = self.sb_idl.get_port_datapath(
             router_port.options['peer'])
@@ -316,7 +321,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
         datapath_bridge, vlan_tag = self._get_bridge_for_datapath(
             cr_lrp_datapath)
 
-        self._disconnect_evpn_to_ovn(evpn_vni, datapath_bridge)
+        self._disconnect_evpn_to_ovn(evpn_vni, datapath_bridge, vlan_tag)
         self._remove_evpn_devices(evpn_vni)
         ovs.remove_evpn_router_ovs_flows(datapath_bridge,
                                          constants.OVS_VRF_RULE_COOKIE,
@@ -417,6 +422,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                     ip.split("/")[0],
                     evpn_info['vni'],
                     datapath_bridge,
+                    vlan=vlan_tag,
                     mask=ip.split("/")[1],
                     via=cr_lrp_ip)
                 break
@@ -428,11 +434,15 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
             net_ip = '{}'.format(ipaddress.IPv4Network(
                 ip, strict=False))
 
+        strip_vlan = False
+        if vlan_tag:
+            strip_vlan = True
         ovs.ensure_evpn_ovs_flow(datapath_bridge,
                                  constants.OVS_VRF_RULE_COOKIE,
                                  cr_lrp_info['mac'],
                                  cr_lrp_info['vrf'],
-                                 net_ip)
+                                 net_ip,
+                                 strip_vlan)
 
         # Check if there are VMs on the network
         # and if so expose the route
@@ -498,7 +508,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
                     ip.split("/")[0],
                     cr_lrp_info['vni'],
                     datapath_bridge,
-
+                    vlan=vlan_tag,
                     mask=ip.split("/")[1],
                     via=cr_lrp_ip)
                 if utils.get_ip_version(cr_lrp_ip) == constants.IP_VERSION_6:
@@ -570,12 +580,14 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
         # add vrf to ovs bridge
         ovs.add_device_to_ovs_bridge(vrf, datapath_bridge, vlan_tag)
 
+        if vlan_tag:
+            linux_net.ensure_vlan_device_for_network(datapath_bridge, vlan_tag)
         # add route for ip to ovs provider bridge (at the vrf routing table)
         for ip in ips:
             ip_without_mask = ip.split("/")[0]
             linux_net.add_ip_route(
                 self._ovn_routing_tables_routes, ip_without_mask,
-                vni, datapath_bridge)
+                vni, datapath_bridge, vlan=vlan_tag)
 
             # add proxy ndp config for ipv6
             if (utils.get_ip_version(ip_without_mask) ==
@@ -585,12 +597,16 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
         # add unreachable route to vrf
         linux_net.add_unreachable_route(vrf)
 
-    def _disconnect_evpn_to_ovn(self, vni, datapath_bridge):
+    def _disconnect_evpn_to_ovn(self, vni, datapath_bridge, vlan_tag):
         vrf = constants.OVN_EVPN_VRF_PREFIX + str(vni)
         # remove vrf from ovs bridge
         ovs.del_device_from_ovs_bridge(vrf, datapath_bridge)
 
         linux_net.delete_routes_from_table(vni)
+
+        if vlan_tag:
+            linux_net.delete_vlan_device_for_network(datapath_bridge,
+                                                     vlan_tag)
 
     def _remove_extra_vrfs(self):
         vrfs, los, bridges, vxlans = ([], [], [], [])

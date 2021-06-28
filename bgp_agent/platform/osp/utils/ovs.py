@@ -83,7 +83,7 @@ def remove_extra_ovs_flows(flows_info, cookie):
                 ovs_cmd('ovs-ofctl', ['del-flows', bridge, del_flow])
 
 
-def ensure_evpn_ovs_flow(bridge, cookie, mac, port, net):
+def ensure_evpn_ovs_flow(bridge, cookie, mac, port, net, strip_vlan=False):
     ovs_port = None
     ovs_ports = ovs_cmd('ovs-vsctl', ['list-ports', bridge])[0].rstrip()
     for p in ovs_ports.split('\n'):
@@ -101,18 +101,32 @@ def ensure_evpn_ovs_flow(bridge, cookie, mac, port, net):
     ip_version = utils.get_ip_version(net)
     if ip_version == constants.IP_VERSION_6:
         with pyroute2.NDB() as ndb:
-            flow = (
-                "cookie={},priority=1000,ipv6,in_port={},dl_src:{},ipv6_src={}"
-                "actions=mod_dl_dst:{},output={}".format(
-                    cookie, ovs_ofport, mac, net,
-                    ndb.interfaces[bridge]['address'], vrf_ofport))
+            if strip_vlan:
+                flow = (
+                    "cookie={},priority=1000,ipv6,in_port={},dl_src:{},ipv6_src={}"
+                    "actions=mod_dl_dst:{},strip_vlan,output={}".format(
+                        cookie, ovs_ofport, mac, net,
+                        ndb.interfaces[bridge]['address'], vrf_ofport))
+            else:
+                flow = (
+                    "cookie={},priority=1000,ipv6,in_port={},dl_src:{},ipv6_src={}"
+                    "actions=mod_dl_dst:{},output={}".format(
+                        cookie, ovs_ofport, mac, net,
+                        ndb.interfaces[bridge]['address'], vrf_ofport))
     else:
         with pyroute2.NDB() as ndb:
-            flow = (
-                "cookie={},priority=1000,ip,in_port={},dl_src:{},nw_src={}"
-                "actions=mod_dl_dst:{},output={}".format(
-                    cookie, ovs_ofport, mac, net,
-                    ndb.interfaces[bridge]['address'], vrf_ofport))
+            if strip_vlan:
+                flow = (
+                    "cookie={},priority=1000,ip,in_port={},dl_src:{},nw_src={}"
+                    "actions=mod_dl_dst:{},strip_vlan,output={}".format(
+                        cookie, ovs_ofport, mac, net,
+                        ndb.interfaces[bridge]['address'], vrf_ofport))
+            else:
+                flow = (
+                    "cookie={},priority=1000,ip,in_port={},dl_src:{},nw_src={}"
+                    "actions=mod_dl_dst:{},output={}".format(
+                        cookie, ovs_ofport, mac, net,
+                        ndb.interfaces[bridge]['address'], vrf_ofport))
     ovs_cmd('ovs-ofctl', ['add-flow', bridge, flow])
 
 
