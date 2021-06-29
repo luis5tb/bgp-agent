@@ -169,7 +169,7 @@ class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):
             if (row.options and
                     row.options.get('network_name') in bridge_mappings):
                 return row.options.get('network_name'), row.tag
-        return None
+        return None, None
 
     def get_network_vlan_tag_by_network_name(self, network_name):
         cmd = self.db_find_rows('Port_Binding', ('type', '=', 'localnet'))

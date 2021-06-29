@@ -213,7 +213,6 @@ def ensure_routing_table_for_bridge(ovn_routing_tables, bridge):
 
 
 def ensure_vlan_device_for_network(bridge, vlan_tag):
-    vlan_tag = vlan_tag[0]
     vlan_device_name = '{}.{}'.format(bridge, vlan_tag)
 
     with pyroute2.NDB() as ndb:

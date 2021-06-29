@@ -123,6 +123,7 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
                 vlan_tag = self.sb_idl.get_network_vlan_tag_by_network_name(
                     network)
                 if vlan_tag:
+                    vlan_tag = vlan_tag[0]
                     linux_net.ensure_vlan_device_for_network(bridge,
                                                              vlan_tag)
 
