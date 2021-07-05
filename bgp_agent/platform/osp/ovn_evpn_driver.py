@@ -592,7 +592,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
             # add proxy ndp config for ipv6
             if (utils.get_ip_version(ip_without_mask) ==
                     constants.IP_VERSION_6):
-                linux_net.add_ndp_proxy(ip, datapath_bridge)
+                linux_net.add_ndp_proxy(ip, datapath_bridge, vlan=vlan_tag)
 
         # add unreachable route to vrf
         linux_net.add_unreachable_route(vrf)
