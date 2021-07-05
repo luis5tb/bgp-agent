@@ -616,7 +616,11 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
             bridges.append(cr_lrp_info['bridge'])
             vxlans.append(cr_lrp_info['vxlan'])
 
-        interfaces = linux_net.get_interfaces()
+        filter_out = ["{}.{}".format(key, value[0]['vlan'])
+                      for key, value in self._ovn_routing_tables_routes.items()
+                      if value[0]['vlan']]
+
+        interfaces = linux_net.get_interfaces(filter_out)
         for interface in interfaces:
             if (interface.startswith(constants.OVN_EVPN_VRF_PREFIX) and
                     interface not in vrfs):

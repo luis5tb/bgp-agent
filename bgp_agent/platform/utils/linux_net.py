@@ -31,9 +31,10 @@ from bgp_agent.utils import utils
 LOG = logging.getLogger(__name__)
 
 
-def get_interfaces():
+def get_interfaces(filter_out=[]):
     with pyroute2.NDB() as ndb:
-        return [iface.ifname for iface in ndb.interfaces]
+        return [iface.ifname for iface in ndb.interfaces
+                if iface.ifname not in filter_out]
 
 
 def get_interface_index(nic):
