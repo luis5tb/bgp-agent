@@ -58,11 +58,11 @@ router bgp {{ bgp_as }}
 
 router bgp {{ bgp_as }} vrf {{ vrf_name }}
   address-family ipv4 unicast
-    redistribute kernel
+    redistribute connected
   exit-address-family
 
   address-family ipv6 unicast
-    redistribute kernel
+    redistribute connected
   exit-address-family
 
 '''
