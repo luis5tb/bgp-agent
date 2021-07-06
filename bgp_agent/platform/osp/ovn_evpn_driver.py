@@ -321,7 +321,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
         datapath_bridge, vlan_tag = self._get_bridge_for_datapath(
             cr_lrp_datapath)
 
-        self._disconnect_evpn_to_ovn(evpn_vni, datapath_bridge, vlan_tag)
+        self._disconnect_evpn_to_ovn(evpn_vni, datapath_bridge, ips, vlan_tag)
         self._remove_evpn_devices(evpn_vni)
         ovs.remove_evpn_router_ovs_flows(datapath_bridge,
                                          constants.OVS_VRF_RULE_COOKIE,
@@ -597,7 +597,7 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
         # add unreachable route to vrf
         linux_net.add_unreachable_route(vrf)
 
-    def _disconnect_evpn_to_ovn(self, vni, datapath_bridge, vlan_tag):
+    def _disconnect_evpn_to_ovn(self, vni, datapath_bridge, ips, vlan_tag):
         vrf = constants.OVN_EVPN_VRF_PREFIX + str(vni)
         # remove vrf from ovs bridge
         ovs.del_device_from_ovs_bridge(vrf, datapath_bridge)
@@ -607,6 +607,9 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
         if vlan_tag:
             linux_net.delete_vlan_device_for_network(datapath_bridge,
                                                      vlan_tag)
+        for ip in ips:
+            if utils.get_ip_version(ip) == constants.IP_VERSION_6:
+                linux_net.del_ndp_proxy(ip, datapath_bridge, vlan=vlan_tag)
 
     def _remove_extra_vrfs(self):
         vrfs, los, bridges, vxlans = ([], [], [], [])
