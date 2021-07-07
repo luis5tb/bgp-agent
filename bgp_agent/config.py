@@ -43,6 +43,10 @@ agent_opts = [
                default='64999',
                help='AS number to be used by the Agent when running in BGP '
                     'mode and configuring the VRF route leaking.'),
+    cfg.StrOpt('bgp_router_id',
+               default=None,
+               help='Router ID to be used by the Agent when running in BGP '
+                    'mode and configuring the VRF route leaking.'),
 ]
 
 CONF = cfg.CONF

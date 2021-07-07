@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from jinja2 import Template
 
 from oslo_concurrency import processutils
@@ -57,6 +58,7 @@ router bgp {{ bgp_as }}
   exit-address-family
 
 router bgp {{ bgp_as }} vrf {{ vrf_name }}
+  bgp router-id {{ bgp_router_id }}
   address-family ipv4 unicast
     redistribute connected
   exit-address-family
@@ -80,10 +82,33 @@ def _run_vtysh_config(frr_config_file):
         raise
 
 
-def vrf_leak(vrf, bgp_as):
+def _run_vtysh_command(command):
+    full_args = ['/usr/bin/vtysh', '--vty_socket', constants.FRR_SOCKET_PATH,
+                 '-c', command]
+    try:
+        return processutils.execute(*full_args, run_as_root=True)[0]
+    except Exception as e:
+        print("Unable to execute vtysh with {}. Exception: {}".format(
+            full_args, e))
+        raise
+
+
+def _get_router_id(bgp_as):
+  output = _run_vtysh_command(command='show ip bgp summary json')
+  return json.loads(output).get('ipv4Unicast', {}).get('routerId')
+
+
+def vrf_leak(vrf, bgp_as, bgp_router_id=None):
     LOG.info("Add VRF leak for VRF {} on router bgp {}".format(vrf, bgp_as))
+    if not bgp_router_id:
+        bgp_router_id = _get_router_id(bgp_as)
+        if not bgp_router_id:
+            LOG.error("Unknown router-id, needed for route leaking")
+            return
+
     vrf_template = Template(LEAK_VRF_TEMPLATE)
-    vrf_config = vrf_template.render(vrf_name=vrf, bgp_as=bgp_as)
+    vrf_config = vrf_template.render(vrf_name=vrf, bgp_as=bgp_as,
+                                     bgp_router_id=bgp_router_id)
     frr_config_file = "frr-config-vrf-leak-{}".format(vrf)
     with open(frr_config_file, 'w') as vrf_config_file:
         vrf_config_file.write(vrf_config)

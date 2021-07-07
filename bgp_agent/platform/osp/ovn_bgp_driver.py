@@ -71,7 +71,7 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
         # Ensure FRR is configure to leak the routes
         # NOTE: If we want to recheck this every X time, we should move it
         # inside the sync function instead
-        frr.vrf_leak(constants.OVN_BGP_VRF, CONF.bgp_AS)
+        frr.vrf_leak(constants.OVN_BGP_VRF, CONF.bgp_AS, CONF.bgp_router_id)
 
         # start the subscriptions to the OSP events. This ensures the watcher
         # calls the relevant driver methods upon registered events
