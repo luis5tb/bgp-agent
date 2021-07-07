@@ -168,7 +168,7 @@ class TenantPortCreatedEvent(PortBindingChassisEvent):
             if (len(row.mac[0].split(' ')) != 2 and
                     len(row.mac[0].split(' ')) != 3):
                 return False
-            return (not old.chassis and
+            return (not old.chassis and row.chassis and
                     self.agent.ovn_local_lrps != [])
         except (IndexError, AttributeError):
             return False
@@ -186,7 +186,7 @@ class TenantPortCreatedEvent(PortBindingChassisEvent):
 
 class TenantPortDeletedEvent(PortBindingChassisEvent):
     def __init__(self, bgp_agent):
-        events = (self.ROW_DELETE,)
+        events = (self.ROW_DELETE, self.ROW_UPDATE,)
         super(TenantPortDeletedEvent, self).__init__(
             bgp_agent, events)
 
@@ -196,7 +196,11 @@ class TenantPortDeletedEvent(PortBindingChassisEvent):
             if (len(row.mac[0].split(' ')) != 2 and
                     len(row.mac[0].split(' ')) != 3):
                 return False
-            return (self.agent.ovn_local_lrps != [])
+            if event == self.ROW_UPDATE:
+                return (old.chassis and not row.chassis and
+                        self.agent.ovn_local_lrps != [])
+            else:
+                return (self.agent.ovn_local_lrps != [])
         except (IndexError, AttributeError):
             return False
 
