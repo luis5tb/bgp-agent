@@ -242,7 +242,8 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
             ports = self.sb_idl.get_ports_on_datapath(
                 network_port_datapath)
             for port in ports:
-                if port.type != "" and port.type != "virtual":
+                if ((port.type != "" and port.type != "virtual") or
+                        (port.type == "" and not port.chassis)):
                     continue
                 try:
                     port_ips = [port.mac[0].split(' ')[1]]
