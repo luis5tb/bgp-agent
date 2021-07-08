@@ -234,7 +234,6 @@ def ensure_vlan_device_for_network(bridge, vlan_tag):
 
 
 def delete_vlan_device_for_network(bridge, vlan_tag):
-    vlan_tag = vlan_tag[0]
     vlan_device_name = '{}.{}'.format(bridge, vlan_tag)
     delete_device(vlan_device_name)
 
