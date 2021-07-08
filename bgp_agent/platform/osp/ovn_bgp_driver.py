@@ -36,7 +36,7 @@ LOG = logging.getLogger(__name__)
 # LOG.setLevel(logging.DEBUG)
 # logging.basicConfig(level=logging.DEBUG)
 
-OVN_TABLES = ("Port_Binding", "Chassis", "Datapath_Binding")
+OVN_TABLES = ("Port_Binding", "Chassis", "Datapath_Binding", "Chassis_Private")
 
 
 class OSPOVNBGPDriver(driver_api.AgentDriverBase):
