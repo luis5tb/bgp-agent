@@ -108,7 +108,7 @@ class SubnetRouterAttachedEvent(PortBindingChassisEvent):
                         not row.logical_port.startswith('lrp-') and
                         row.external_ids[constants.OVN_EVPN_VNI_EXT_ID_KEY] and
                         row.external_ids[constants.OVN_EVPN_AS_EXT_ID_KEY])
-        except (IndexError, AttributeError):
+        except (IndexError, AttributeError, KeyError):
             return False
 
     def run(self, event, row, old):
@@ -143,7 +143,7 @@ class SubnetRouterDetachedEvent(PortBindingChassisEvent):
                         not row.logical_port.startswith('lrp-') and
                         row.external_ids[constants.OVN_EVPN_VNI_EXT_ID_KEY] and
                         row.external_ids[constants.OVN_EVPN_AS_EXT_ID_KEY])
-        except (IndexError, AttributeError):
+        except (IndexError, AttributeError, KeyError):
             return False
 
     def run(self, event, row, old):
