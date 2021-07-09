@@ -549,7 +549,11 @@ class OSPOVNBGPDriver(driver_api.AgentDriverBase):
                         vlan=vlan_tag)
                     # del proxy ndp config for ipv6
                     if utils.get_ip_version(ip) == constants.IP_VERSION_6:
-                        linux_net.del_ndp_proxy(ip, rule_bridge, vlan_tag)
+                        cr_lrps_on_same_provider = [
+                            p for p in self.ovn_local_cr_lrps.values()
+                            if p['provider_datapath'] == cr_lrp_datapath]
+                        if (len(cr_lrps_on_same_provider) > 1):
+                            linux_net.del_ndp_proxy(ip, rule_bridge, vlan_tag)
 
                 # Check if there are networks attached to the router,
                 # and if so, delete the needed routes/rules
