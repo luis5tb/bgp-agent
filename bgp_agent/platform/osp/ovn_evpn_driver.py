@@ -608,9 +608,10 @@ class OSPOVNEVPNDriver(driver_api.AgentDriverBase):
         if vlan_tag:
             linux_net.delete_vlan_device_for_network(datapath_bridge,
                                                      vlan_tag)
-        for ip in ips:
-            if utils.get_ip_version(ip) == constants.IP_VERSION_6:
-                linux_net.del_ndp_proxy(ip, datapath_bridge, vlan=vlan_tag)
+        else:
+            for ip in ips:
+                if utils.get_ip_version(ip) == constants.IP_VERSION_6:
+                    linux_net.del_ndp_proxy(ip, datapath_bridge)
 
     def _remove_extra_vrfs(self):
         vrfs, los, bridges, vxlans = ([], [], [], [])

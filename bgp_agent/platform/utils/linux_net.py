@@ -372,7 +372,7 @@ def delete_routes_from_table(table):
     with pyroute2.NDB() as ndb:
         # FIXME: problem in pyroute2 removing routes with local (254) scope
         table_routes = [r for r in ndb.routes.dump().filter(table=table)
-                        if r.scope != 254]
+                        if r.scope != 254 and r.proto != 186]
         for route in table_routes:
             try:
                 with ndb.routes[route] as r:
