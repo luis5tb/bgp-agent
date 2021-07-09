@@ -385,7 +385,7 @@ def get_routes_on_tables(table_ids):
     with pyroute2.NDB() as ndb:
         # NOTE: skip bgp routes (proto 186)
         return [r for r in ndb.routes.dump()
-                if r.table in table_ids and r.dst != '' and r.dst != 186]
+                if r.table in table_ids and r.dst != '' and r.proto != 186]
 
 
 def delete_ip_routes(routes):
