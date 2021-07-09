@@ -106,8 +106,11 @@ def ensure_ovn_device(ovn_ifname, vrf_name):
 
 
 def delete_device(device):
-    with pyroute2.NDB() as ndb:
-        ndb.interfaces[device].remove().commit()
+    try:
+        with pyroute2.NDB() as ndb:
+            ndb.interfaces[device].remove().commit()
+    except KeyError:
+        LOG.debug("Interfaces {} already deleted.".format(device))
 
 
 def ensure_routing_table_for_bridge(ovn_routing_tables, bridge):
