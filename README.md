@@ -1,3 +1,8 @@
+# NOTE
+
+The work on this has been moved to an opendev community repository so that other folks can better collaborate on this:
+https://opendev.org/x/ovn-bgp-agent/ 
+
 # OVN BGP Agent
 
 BGP Agent targets to expose VMs/Containers through BGP on OVN environments.
